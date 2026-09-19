@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -33,6 +34,8 @@ public class OutboundRecord {
     private SalesOrderItem orderItem;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "product_id", nullable = false)
     private Product product;
+    @Column(name = "planned_outbound_date", nullable = false)
+    private LocalDate plannedOutboundDate;
     @Column(name = "planned_quantity", nullable = false, precision = 18, scale = 3)
     private BigDecimal plannedQuantity;
     @Column(name = "actual_quantity", precision = 18, scale = 3)
@@ -52,13 +55,21 @@ public class OutboundRecord {
 
     protected OutboundRecord() { }
 
-    public OutboundRecord(String recordNo, SalesOrderItem item) {
+    public OutboundRecord(String recordNo, SalesOrderItem item, LocalDate plannedOutboundDate) {
+        if (plannedOutboundDate == null) throw new IllegalArgumentException("Planned outbound date is required");
+        this.plannedOutboundDate = plannedOutboundDate;
         this.recordNo = recordNo;
         this.order = item.getOrder();
         this.orderItem = item;
         this.product = item.getProduct();
         this.plannedQuantity = item.getOrderedQuantity();
         this.status = OutboundStatus.PENDING;
+    }
+
+    public void reschedule(LocalDate date) {
+        if (status != OutboundStatus.PENDING) throw new IllegalStateException("Only pending tasks can be rescheduled");
+        if (date == null) throw new IllegalArgumentException("Planned outbound date is required");
+        plannedOutboundDate = date;
     }
 
     public void cancelPending() {
@@ -78,6 +89,7 @@ public class OutboundRecord {
     public SalesOrder getOrder() { return order; }
     public SalesOrderItem getOrderItem() { return orderItem; }
     public Product getProduct() { return product; }
+    public LocalDate getPlannedOutboundDate() { return plannedOutboundDate; }
     public BigDecimal getPlannedQuantity() { return plannedQuantity; }
     public BigDecimal getActualQuantity() { return actualQuantity; }
     public OutboundStatus getStatus() { return status; }
