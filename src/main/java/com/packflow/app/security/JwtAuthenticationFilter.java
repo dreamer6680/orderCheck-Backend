@@ -1,5 +1,6 @@
 package com.packflow.app.security;
 
+import com.packflow.app.user.AppUserRepository;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,9 +18,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenService jwtTokenService;
+    private final AppUserRepository users;
 
-    public JwtAuthenticationFilter(JwtTokenService jwtTokenService) {
+    public JwtAuthenticationFilter(JwtTokenService jwtTokenService, AppUserRepository users) {
         this.jwtTokenService = jwtTokenService;
+        this.users = users;
     }
 
     @Override
@@ -31,9 +34,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (authorization != null && authorization.startsWith("Bearer ")) {
             try {
                 JwtPrincipal principal = jwtTokenService.parse(authorization.substring(7));
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().name()));
-                var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                users.findByUsername(principal.username())
+                        .filter(user -> user.isEnabled()
+                                && user.getRole() == principal.role()
+                                && user.getTokenVersion() == principal.tokenVersion())
+                        .ifPresent(user -> {
+                            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
+                            var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                        });
             } catch (JwtException | IllegalArgumentException ignored) {
                 SecurityContextHolder.clearContext();
             }
