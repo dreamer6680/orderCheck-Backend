@@ -146,6 +146,27 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void completionCannotConsumeStockReservedForAnotherPendingTask() {
+        var firstOrder = reserve(item(first, "6.000"));
+        var secondOrder = reserve(item(first, "4.000"));
+        var firstTask = rows(firstOrder.id()).getFirst();
+        var secondTask = rows(secondOrder.id()).getFirst();
+        jdbc.update("update inventory set quantity = 7.000 where product_id = ?", first.getId());
+
+        var check = outboundService.checkInventory(firstTask.getId(), "warehouse");
+        assertThat(check.executable()).isFalse();
+        assertThat(check.availableForTask()).isEqualByComparingTo("3.000");
+
+        conflict(() -> outboundService.complete(firstTask.getId(), new BigDecimal("6.000"), null, "warehouse"));
+        assertThat(outboundRepository.findById(firstTask.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+        assertThat(outboundRepository.findById(secondTask.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).physicalQuantity())
+                .isEqualByComparingTo("7.000");
+    }
+
+    @Test
     void completedRecordCannotBeCompletedOrCancelledAgain() {
         var order = reserve(item(first, "10.000"));
         var row = rows(order.id()).getFirst();
