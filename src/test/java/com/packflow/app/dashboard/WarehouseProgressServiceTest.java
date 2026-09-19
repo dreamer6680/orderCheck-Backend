@@ -65,13 +65,13 @@ class WarehouseProgressServiceTest {
                 any(OffsetDateTime.class), any(OffsetDateTime.class))).thenReturn(5L);
         when(inbounds.count()).thenReturn(14L);
         when(outbounds.countByStatus(OutboundStatus.PENDING)).thenReturn(3L);
-        when(outbounds.countByStatusAndPlannedOutboundDate(eq(OutboundStatus.PENDING), any(java.time.LocalDate.class)))
-                .thenReturn(2L);
         when(outbounds.countByStatus(OutboundStatus.COMPLETED)).thenReturn(8L);
         when(outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED))
                 .thenReturn(2L);
         when(orders.count()).thenReturn(3L);
-        when(orders.countByStatus(OrderStatus.PENDING_OUTBOUND)).thenReturn(1L);
+        when(orders.countByStatus(OrderStatus.PENDING_OUTBOUND)).thenReturn(3L);
+        when(orders.countByStatusAndDeliveryDate(eq(OrderStatus.PENDING_OUTBOUND), any(java.time.LocalDate.class)))
+                .thenReturn(2L);
         when(orders.countByStatus(OrderStatus.ABNORMAL)).thenReturn(1L);
 
         var result = service.today();
@@ -87,10 +87,10 @@ class WarehouseProgressServiceTest {
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("66.7");
         assertThat(result.differencePercent()).isEqualByComparingTo("25.0");
         assertThat(result.totalOrderCount()).isEqualTo(3);
-        assertThat(result.pendingOutboundOrderCount()).isEqualTo(1);
+        assertThat(result.pendingOutboundOrderCount()).isEqualTo(3);
         assertThat(result.abnormalOrderCount()).isEqualTo(1);
         assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
-        verify(outbounds).countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, result.businessDate());
+        verify(orders).countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, result.businessDate());
         assertThat(result.timeZone()).isEqualTo("Asia/Shanghai");
 
         ArgumentCaptor<OffsetDateTime> start = ArgumentCaptor.forClass(OffsetDateTime.class);
