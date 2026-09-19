@@ -311,7 +311,7 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
     }
 
     private OrderDtos.CreateOrderRequest command(OrderDtos.ItemRequest... items) {
-        return new OrderDtos.CreateOrderRequest("Customer", List.of(items));
+        return new OrderDtos.CreateOrderRequest("Customer", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(1), List.of(items));
     }
 
     private OrderDtos.OrderResponse create(OrderDtos.ItemRequest... items) {
