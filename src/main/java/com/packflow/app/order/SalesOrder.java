@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -27,6 +28,8 @@ public class SalesOrder {
     private String customerName;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30)
     private OrderStatus status;
+    @Column(name = "delivery_date")
+    private LocalDate deliveryDate;
     @Column(name = "exception_reason", columnDefinition = "text")
     private String exceptionReason;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -44,6 +47,17 @@ public class SalesOrder {
         this.customerName = customerName;
         this.createdBy = createdBy;
         this.status = OrderStatus.PENDING_CHECK;
+    }
+
+    public SalesOrder(String orderNo, String customerName, AppUser createdBy, LocalDate deliveryDate) {
+        this(orderNo, customerName, createdBy);
+        if (deliveryDate == null) throw new IllegalArgumentException("Delivery date is required");
+        this.deliveryDate = deliveryDate;
+    }
+
+    public void changeDeliveryDate(LocalDate date) {
+        if (date == null) throw new IllegalArgumentException("Delivery date is required");
+        this.deliveryDate = date;
     }
 
     public void markPendingOutbound() {
@@ -67,6 +81,7 @@ public class SalesOrder {
     public String getCustomerName() { return customerName; }
     public OrderStatus getStatus() { return status; }
     public String getExceptionReason() { return exceptionReason; }
+    public LocalDate getDeliveryDate() { return deliveryDate; }
     public AppUser getCreatedBy() { return createdBy; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
