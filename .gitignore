@@ -1,0 +1,94 @@
+
+# =========================
+# Maven
+# =========================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# =========================
+# Gradle
+# =========================
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# =========================
+# IntelliJ IDEA
+# =========================
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# =========================
+# Eclipse / STS
+# =========================
+.project
+.classpath
+.settings/
+.factorypath
+.springBeans
+.sts4-cache/
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+*.code-workspace
+
+# =========================
+# Java
+# =========================
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# =========================
+# Local configuration / secrets
+# =========================
+application-local.yml
+application-local.yaml
+application-local.properties
+
+application-secret.yml
+application-secret.yaml
+application-secret.properties
+
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+
+# =========================
+# Logs and runtime data
+# =========================
+logs/
+*.log.*
+tmp/
+temp/
+*.pid
+
+# =========================
+# Test reports and coverage
+# =========================
+coverage/
+jacoco.exec
+*.exec
+
+# =========================
+# Operating system
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
