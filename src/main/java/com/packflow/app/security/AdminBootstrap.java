@@ -12,8 +12,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Local-only demo administrator. Set ADMIN_PASSWORD in your IDE environment;
- * username is always "admin". No published or hardcoded password is used.
+ * Local-only demo administrator. The username is always "admin"; the password
+ * is read from app.demo.admin-password in application.yaml.
  */
 @Component
 @Profile("local")
@@ -25,7 +25,7 @@ public class AdminBootstrap implements ApplicationRunner {
     private final String password;
 
     public AdminBootstrap(AppUserRepository users, PasswordEncoder passwords,
-            @Value("${ADMIN_PASSWORD:}") String password) {
+            @Value("${app.demo.admin-password:}") String password) {
         this.users = users;
         this.passwords = passwords;
         this.password = password;
@@ -38,8 +38,8 @@ public class AdminBootstrap implements ApplicationRunner {
             // Existing databases and automated tests can run without a demo administrator.
             return;
         }
-        if (password.length() < 8 || password.length() > 72) {
-            throw new IllegalStateException("ADMIN_PASSWORD must contain 8-72 characters");
+        if (password.length() < 6 || password.length() > 72) {
+            throw new IllegalStateException("app.demo.admin-password must contain 6-72 characters");
         }
 
         var existing = users.findByUsername(DEMO_USERNAME);
