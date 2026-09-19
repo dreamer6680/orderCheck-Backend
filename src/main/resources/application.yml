@@ -20,3 +20,9 @@ app:
 
 server:
   shutdown: graceful
+
+logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-none}]"
+  level:
+    com.packflow.app: ${APP_LOG_LEVEL:INFO}
