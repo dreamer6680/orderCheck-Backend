@@ -231,19 +231,21 @@ class OutboundServiceTest extends PostgresIntegrationTest {
         var order = reserve(item(first, "10.000"));
         var task = rows(order.id()).getFirst();
         var before = warehouseProgress.today();
-        LocalDate tomorrow = before.businessDate().plusDays(1);
-        assertThat(task.getPlannedOutboundDate()).isEqualTo(before.businessDate());
+        LocalDate originalDeliveryDate = order.deliveryDate();
+        assertThat(task.getPlannedOutboundDate()).isEqualTo(originalDeliveryDate);
+        assertThat(originalDeliveryDate).isAfter(before.businessDate());
 
         mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"plannedOutboundDate\":\"" + tomorrow + "\"}"))
+                        .content("{\"plannedOutboundDate\":\"" + before.businessDate() + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.plannedOutboundDate").value(tomorrow.toString()));
+                .andExpect(jsonPath("$.plannedOutboundDate").value(before.businessDate().toString()));
         var after = warehouseProgress.today();
         assertThat(after.pendingOutboundCount()).isEqualTo(before.pendingOutboundCount());
-        assertThat(after.todayPendingOutboundCount()).isEqualTo(before.todayPendingOutboundCount() - 1);
+        assertThat(after.todayPendingOutboundCount()).isEqualTo(before.todayPendingOutboundCount() + 1);
+        assertThat(after.todayDuePendingOrderCount()).isEqualTo(before.todayDuePendingOrderCount());
         assertThat(outboundRepository.findById(task.getId()).orElseThrow().getPlannedOutboundDate())
-                .isEqualTo(tomorrow);
+                .isEqualTo(before.businessDate());
 
         outboundService.complete(task.getId(), new BigDecimal("10.000"), null, "warehouse");
         mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
