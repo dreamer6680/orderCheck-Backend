@@ -1,6 +1,7 @@
 package com.packflow.app.security;
 
 import com.packflow.app.user.AppUser;
+import com.packflow.app.user.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -28,7 +29,7 @@ public class JwtTokenService {
         return createToken(user.getUsername(), user.getRole(), user.getTokenVersion());
     }
 
-    private String createToken(String username, com.packflow.app.user.Role role, long tokenVersion) {
+    private String createToken(String username, Role role, long tokenVersion) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(username)
