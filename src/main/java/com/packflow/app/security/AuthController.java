@@ -38,7 +38,7 @@ public class AuthController {
                 .filter(AppUser::isEnabled)
                 .filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
-        return new LoginResponse(jwtTokenService.createToken(user.getUsername(), user.getRole()), UserResponse.from(user));
+        return new LoginResponse(jwtTokenService.createToken(user), UserResponse.from(user));
     }
 
     @GetMapping("/me")
