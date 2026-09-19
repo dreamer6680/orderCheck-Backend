@@ -366,7 +366,7 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     private OrderDtos.OrderResponse reserve(OrderDtos.ItemRequest... items) {
-        var order = orderService.createOrder(new OrderDtos.CreateOrderRequest("Outbound customer", LocalDate.now().plusDays(1), List.of(items)), "sales");
+        var order = orderService.createOrder(new OrderDtos.CreateOrderRequest("Outbound customer", LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(2), List.of(items)), "sales");
         return orderService.checkInventory(order.id(), "sales");
     }
 
