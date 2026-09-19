@@ -43,7 +43,7 @@ public class WarehouseProgressService {
         long todayOutbound = outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
                 OutboundStatus.COMPLETED, start, end);
         long pendingOutbound = outbounds.countByStatus(OutboundStatus.PENDING);
-        long todayPendingOutbound = outbounds.countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, today);
+        long todayPendingOutbound = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
         long completedOutbound = outbounds.countByStatus(OutboundStatus.COMPLETED);
         long differences = outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED);
         long totalOrders = orders.count();
@@ -53,7 +53,7 @@ public class WarehouseProgressService {
                 today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
                 differences, OffsetDateTime.now(businessZone), totalInbound, todayPendingOutbound,
                 completedOutbound, percentage(todayInbound, totalInbound),
-                percentage(todayPendingOutbound, pendingOutbound), percentage(differences, completedOutbound),
+                percentage(todayPendingOutbound, pendingOutboundOrders), percentage(differences, completedOutbound),
                 totalOrders, pendingOutboundOrders, abnormalOrders,
                 percentage(abnormalOrders, totalOrders));
     }
