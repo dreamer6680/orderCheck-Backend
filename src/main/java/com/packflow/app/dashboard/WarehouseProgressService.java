@@ -21,7 +21,7 @@ public class WarehouseProgressService {
     public WarehouseProgressService(
             InboundRecordRepository inbounds,
             OutboundRecordRepository outbounds,
-            @Value("${app.warehouse.time-zone:Asia/Shanghai}") String timeZone) {
+            @Value("${app.warehouse.time-zone}") String timeZone) {
         this.inbounds = inbounds;
         this.outbounds = outbounds;
         this.businessZone = ZoneId.of(timeZone);
