@@ -1,6 +1,7 @@
 package com.packflow.app.order;
 
 import com.packflow.app.order.OrderDtos.CreateOrderRequest;
+import com.packflow.app.order.OrderDtos.DeliveryDateRequest;
 import com.packflow.app.order.OrderDtos.OrderResponse;
 import com.packflow.app.security.JwtPrincipal;
 import jakarta.validation.Valid;
@@ -12,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,6 +51,12 @@ public class OrderController {
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request, Authentication authentication) {
         OrderResponse result = service.createOrder(request, username(authentication));
         return ResponseEntity.created(URI.create("/api/orders/" + result.id())).body(result);
+    }
+
+    @PatchMapping("/{id}/delivery-date")
+    public OrderResponse updateDeliveryDate(@PathVariable Long id,
+            @Valid @RequestBody DeliveryDateRequest request, Authentication authentication) {
+        return service.changeDeliveryDate(id, request.deliveryDate(), username(authentication));
     }
 
     @PostMapping("/{id}/check-inventory")
