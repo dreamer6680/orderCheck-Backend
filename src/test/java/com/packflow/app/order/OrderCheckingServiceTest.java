@@ -36,6 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +78,27 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         assertThat(order.items()).hasSize(2);
         assertThat(order.createdBy()).isEqualTo("sales");
         assertThat(orderService.getOrder(order.id(), "warehouse").items()).hasSize(2);
+    }
+
+    @Test
+    @WithMockUser(username = "sales", roles = "SALES")
+    void createAndUpdateDeliveryDatePersistsActualCustomerPromise() throws Exception {
+        var order = create(item(first, "10"));
+        var date = order.deliveryDate().plusDays(2);
+        assertThat(orderRepository.findById(order.id()).orElseThrow().getDeliveryDate())
+                .isEqualTo(order.deliveryDate());
+
+        mvc.perform(patch("/api/orders/{id}/delivery-date", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryDate\":\"" + date + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deliveryDate").value(date.toString()));
+
+        assertThat(orderService.getOrder(order.id(), "sales").deliveryDate()).isEqualTo(date);
+        mvc.perform(patch("/api/orders/{id}/delivery-date", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
