@@ -1,6 +1,14 @@
 package com.packflow.app.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.packflow.app.common.ApiError;
+import com.packflow.app.common.GlobalExceptionHandler;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +28,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter)
+    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter,
+                                            ObjectMapper objectMapper)
             throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -34,10 +43,23 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
                         .anyRequest().authenticated())
-                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
-                        (request, response, exception) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, exception) ->
+                                writeError(request, response, objectMapper, HttpServletResponse.SC_UNAUTHORIZED, "Authentication required"))
+                        .accessDeniedHandler((request, response, exception) ->
+                                writeError(request, response, objectMapper, HttpServletResponse.SC_FORBIDDEN, "Access denied")))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    private void writeError(HttpServletRequest request, HttpServletResponse response,
+                            ObjectMapper mapper, int status, String message) throws IOException {
+        response.setStatus(status);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        mapper.writeValue(response.getOutputStream(), new ApiError(status, message,
+                GlobalExceptionHandler.requestId(request), request.getRequestURI(),
+                OffsetDateTime.now(), Map.of()));
     }
 
     @Bean
