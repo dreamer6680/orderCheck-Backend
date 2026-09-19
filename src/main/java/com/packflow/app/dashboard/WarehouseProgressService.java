@@ -4,6 +4,8 @@ import com.packflow.app.inventory.InboundRecordRepository;
 import com.packflow.app.outbound.OutboundRecordRepository;
 import com.packflow.app.outbound.OutboundStatus;
 import java.time.LocalDate;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,15 +33,26 @@ public class WarehouseProgressService {
         OffsetDateTime start = today.atStartOfDay(businessZone).toOffsetDateTime();
         OffsetDateTime end = today.plusDays(1).atStartOfDay(businessZone).toOffsetDateTime();
 
+        long todayInbound = inbounds.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(start, end);
+        long totalInbound = inbounds.count();
+        long todayOutbound = outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
+                OutboundStatus.COMPLETED, start, end);
+        long pendingOutbound = outbounds.countByStatus(OutboundStatus.PENDING);
+        long todayPendingOutbound = outbounds.countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, today);
+        long completedOutbound = outbounds.countByStatus(OutboundStatus.COMPLETED);
+        long differences = outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED);
         return new WarehouseProgressResponse(
-                today,
-                businessZone.getId(),
-                inbounds.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(start, end),
-                outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
-                        OutboundStatus.COMPLETED, start, end),
-                outbounds.countByStatus(OutboundStatus.PENDING),
-                outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED),
-                OffsetDateTime.now(businessZone));
+                today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
+                differences, OffsetDateTime.now(businessZone), totalInbound, todayPendingOutbound,
+                completedOutbound, percentage(todayInbound, totalInbound),
+                percentage(todayPendingOutbound, pendingOutbound), percentage(differences, completedOutbound));
+    }
+
+    /** Returns a percentage rounded to one decimal; no tasks/records means 0%, not 100%. */
+    private static BigDecimal percentage(long numerator, long denominator) {
+        if (denominator == 0) return BigDecimal.ZERO.setScale(1);
+        return BigDecimal.valueOf(numerator).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(denominator), 1, RoundingMode.HALF_UP);
     }
 
     /** Difference count includes all completed outbound records with a documented quantity difference;
@@ -51,6 +64,12 @@ public class WarehouseProgressService {
             long todayOutboundCount,
             long pendingOutboundCount,
             long differenceRecordCount,
-            OffsetDateTime updatedAt) {
+            OffsetDateTime updatedAt,
+            long totalInboundCount,
+            long todayPendingOutboundCount,
+            long completedOutboundCount,
+            BigDecimal todayInboundPercent,
+            BigDecimal todayPendingOutboundPercent,
+            BigDecimal differencePercent) {
     }
 }
