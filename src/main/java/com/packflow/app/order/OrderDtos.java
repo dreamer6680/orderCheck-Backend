@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 public final class OrderDtos {
@@ -17,7 +18,10 @@ public final class OrderDtos {
 
     public record CreateOrderRequest(
             @NotBlank @Size(max = 150) String customerName,
+            @NotNull LocalDate deliveryDate,
             @NotEmpty List<@NotNull @Valid ItemRequest> items) { }
+
+    public record DeliveryDateRequest(@NotNull LocalDate deliveryDate) { }
 
     public record ItemRequest(
             @NotNull @Positive Long productId,
@@ -28,6 +32,6 @@ public final class OrderDtos {
             String unit, BigDecimal orderedQuantity) { }
 
     public record OrderResponse(Long id, String orderNo, String customerName, OrderStatus status,
-            String exceptionReason, String createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt,
+            LocalDate deliveryDate, String exceptionReason, String createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt,
             List<ItemResponse> items) { }
 }
