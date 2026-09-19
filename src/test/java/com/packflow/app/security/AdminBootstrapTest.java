@@ -25,10 +25,10 @@ class AdminBootstrapTest {
     private final DefaultApplicationArguments args = new DefaultApplicationArguments();
 
     @Test
-    void createsAdminWithOnlyOnePasswordVariable() {
+    void createsAdminWithPasswordFromYaml() {
         when(users.findByUsername("admin")).thenReturn(Optional.empty());
 
-        new AdminBootstrap(users, encoder, "my-local-password").run(args);
+        new AdminBootstrap(users, encoder, "123456").run(args);
 
         ArgumentCaptor<AppUser> captor = ArgumentCaptor.forClass(AppUser.class);
         verify(users).saveAndFlush(captor.capture());
@@ -36,7 +36,7 @@ class AdminBootstrapTest {
         assertThat(admin.getUsername()).isEqualTo("admin");
         assertThat(admin.getRole()).isEqualTo(Role.MANAGER);
         assertThat(admin.isEnabled()).isTrue();
-        assertThat(encoder.matches("my-local-password", admin.getPasswordHash())).isTrue();
+        assertThat(encoder.matches("123456", admin.getPasswordHash())).isTrue();
     }
 
     @Test
@@ -84,12 +84,12 @@ class AdminBootstrapTest {
     }
 
     @Test
-    void rejectsShortOrTooLongDemoPassword() {
-        assertThatThrownBy(() -> new AdminBootstrap(users, encoder, "short").run(args))
+    void rejectsInvalidDemoPasswordLengths() {
+        assertThatThrownBy(() -> new AdminBootstrap(users, encoder, "12345").run(args))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("8-72");
+                .hasMessageContaining("6-72");
         assertThatThrownBy(() -> new AdminBootstrap(users, encoder, "x".repeat(73)).run(args))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("8-72");
+                .hasMessageContaining("6-72");
     }
 }
