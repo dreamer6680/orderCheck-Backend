@@ -1,6 +1,10 @@
 package com.packflow.app.security;
 
 import com.packflow.app.support.PostgresIntegrationTest;
+import com.packflow.app.admin.AdminDtos;
+import com.packflow.app.admin.AdminUserService;
+import com.packflow.app.user.AppUserRepository;
+import com.packflow.app.user.Role;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -17,6 +21,10 @@ class AuthApiTest extends PostgresIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private AdminUserService adminUsers;
+    @Autowired
+    private AppUserRepository users;
 
     @Test
     void logsInEachDemoUserWithTheMatchingRole() throws Exception {
@@ -74,6 +82,43 @@ class AuthApiTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.username").value("manager"))
                 .andExpect(jsonPath("$.displayName").value("Manager"))
                 .andExpect(jsonPath("$.role").value("MANAGER"));
+    }
+
+    @Test
+    void passwordResetRevokesExistingTokenEvenForReadOnlyEndpoints() throws Exception {
+        String token = loginToken("warehouse", "warehouse123");
+        Long warehouseId = users.findByUsername("warehouse").orElseThrow().getId();
+
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        adminUsers.resetPassword(warehouseId, "A new secure password 456!", "manager");
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void disablingOrChangingRoleRevokesExistingTokenEvenForReadOnlyEndpoints() throws Exception {
+        Long warehouseId = users.findByUsername("warehouse").orElseThrow().getId();
+        String token = loginToken("warehouse", "warehouse123");
+        adminUsers.update(warehouseId, new AdminDtos.UpdateUserRequest(
+                "Warehouse", Role.SALES, true), "manager");
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+
+        String nextToken = loginToken("warehouse", "warehouse123");
+        adminUsers.update(warehouseId, new AdminDtos.UpdateUserRequest(
+                "Warehouse", Role.SALES, false), "manager");
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer " + nextToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String loginToken(String username, String password) throws Exception {
+        return mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\\"username\\":\\"" + username + "\\",\\"password\\":\\"" + password + "\\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()
+                .replaceAll(".*\\"token\\":\\"([^\\"]+)\\".*", "$1");
     }
 
     private void assertLogin(String username, String password, String displayName, String role) throws Exception {
