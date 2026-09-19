@@ -10,11 +10,15 @@ Spring Boot 3.5 / Java 21 / PostgreSQL. The default Spring profile is `local`, c
 4. In IntelliJ's **Run → Edit Configurations → PackFlowApplication → Environment variables**, set `JWT_SECRET` to a secure random secret of at least 32 UTF-8 bytes. The Spring Boot project does not read `.env` automatically. Use `.env.example` as a list of available variables.
 5. Ensure PostgreSQL is running; start `PackFlowApplication`. There is no need to set `spring.profiles.active` for normal local runs: `application.yml` already defaults to `local`.
 
-## First admin account after the security migration
+## Local demo administrator (one environment variable)
 
-Flyway V4 disables the three historical demo accounts **only when their stored password hashes still equal the published default hashes**. If no active manager exists, set **both** `APP_BOOTSTRAP_ADMIN_USERNAME` (a distinct 3–50-character username) and `APP_BOOTSTRAP_ADMIN_PASSWORD` (12–72 characters) as environment variables before the first startup. The application creates one real manager only when there is no active manager and will not overwrite or reactivate an existing account. After successful bootstrap, remove the bootstrap password from your persistent Run Configuration/environment to reduce credential exposure.
+The demo manager username is always **`admin`**. In IntelliJ's **Run → Edit Configurations → Environment variables**, set `ADMIN_PASSWORD` to your own 8–72-character password and start the backend. When `local` is active, the application creates an enabled `MANAGER` named `admin` if it does not exist, even if another manager already exists. Login with username `admin` and your configured password via `POST /api/auth/login`.
 
-On first startup after V3, previously issued tokens must be replaced by logging in again. The known demo account passwords are not intended for regular development or production. Integration tests re-enable demo users **only** in their isolated Testcontainers PostgreSQL database.
+On subsequent local restarts, `ADMIN_PASSWORD` remains the password for this demo account. Changing it resets this account's password and invalidates previous JWTs. If an existing `admin` account is disabled or has a different role, the bootstrap does **not** silently elevate it: use the existing manager account to resolve that conflict. An empty `ADMIN_PASSWORD` skips demo account bootstrap.
+
+**Production:** this bootstrap runs only under the `local` Spring profile; production must explicitly activate a separate profile and provision managed administrator accounts through an approved deployment process. Never use the `local` profile or demo account on an exposed deployment. The previous `APP_BOOTSTRAP_ADMIN_USERNAME` and `APP_BOOTSTRAP_ADMIN_PASSWORD` variables are no longer used.
+
+Flyway V4 disables the three historical demo accounts only when they still use the published passwords. On first startup after V3, previously issued tokens must be replaced by logging in again. Integration tests re-enable fixture users only in isolated Testcontainers PostgreSQL.
 
 ## Verification
 
