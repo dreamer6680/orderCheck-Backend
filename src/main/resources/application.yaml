@@ -1,0 +1,59 @@
+# Shared application settings. Local development needs only this file.
+spring:
+  application:
+    name: packflow-backend
+  profiles:
+    default: local
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/packflow}
+    username: ${DATABASE_USERNAME:packflow}
+    password: ${DATABASE_PASSWORD:packflow}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+app:
+  security:
+    jwt-expiration: ${JWT_EXPIRATION:86400000}
+
+server:
+  shutdown: graceful
+
+logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-none}]"
+  level:
+    com.packflow.app: ${APP_LOG_LEVEL:INFO}
+
+---
+# Demo-only settings: Spring activates this document only for local.
+# Do not deploy with the local profile or its demo credentials.
+spring:
+  config:
+    activate:
+      on-profile: local
+
+app:
+  security:
+    jwt-secret: "local-only-packflow-jwt-secret-please-never-use-this-outside-development"
+  demo:
+    admin-password: "123456"
+
+---
+# Production has no sample JWT signing key or demo admin password.
+# Set SPRING_PROFILES_ACTIVE=prod and provide the required environment variables.
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+
+app:
+  security:
+    jwt-secret: ${JWT_SECRET}
