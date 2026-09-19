@@ -45,7 +45,7 @@ public class OrderService {
 
     public OrderService(SalesOrderRepository orders, SalesOrderItemRepository items, ProductRepository products,
             InventoryRepository inventories, OutboundRecordRepository outbounds, AppUserRepository users,
-            Validator validator, @Value("${app.warehouse.time-zone:Asia/Shanghai}") String warehouseTimeZone) {
+            Validator validator, @Value("${app.warehouse.time-zone}") String warehouseTimeZone) {
         this.orders = orders;
         this.items = items;
         this.products = products;
