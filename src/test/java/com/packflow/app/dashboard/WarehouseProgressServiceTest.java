@@ -26,6 +26,8 @@ class WarehouseProgressServiceTest {
         var result = new WarehouseProgressService(inbounds, outbounds, orders, "Asia/Shanghai").today();
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("0.0");
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("0.0");
+        assertThat(result.todayDuePendingOrderPercent()).isEqualByComparingTo("0.0");
+        assertThat(result.undatedPendingOrderCount()).isZero();
         assertThat(result.differencePercent()).isEqualByComparingTo("0.0");
         assertThat(result.pendingOutboundCount()).isZero();
         assertThat(result.abnormalOrderCount()).isZero();
@@ -45,6 +47,7 @@ class WarehouseProgressServiceTest {
 
         assertThat(result.pendingOutboundOrderCount()).isEqualTo(1);
         assertThat(result.pendingOutboundCount()).isZero();
+        assertThat(result.todayDuePendingOrderCount()).isZero();
         assertThat(result.abnormalOrderCount()).isEqualTo(1);
         assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
         assertThat(result.differenceRecordCount()).isZero();
@@ -65,14 +68,17 @@ class WarehouseProgressServiceTest {
                 any(OffsetDateTime.class), any(OffsetDateTime.class))).thenReturn(5L);
         when(inbounds.count()).thenReturn(14L);
         when(outbounds.countByStatus(OutboundStatus.PENDING)).thenReturn(3L);
+        when(outbounds.countByStatusAndPlannedOutboundDate(eq(OutboundStatus.PENDING), any(java.time.LocalDate.class)))
+                .thenReturn(1L);
         when(outbounds.countByStatus(OutboundStatus.COMPLETED)).thenReturn(8L);
         when(outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED))
                 .thenReturn(2L);
-        when(orders.count()).thenReturn(3L);
+        when(orders.count()).thenReturn(4L);
         when(orders.countByStatus(OrderStatus.PENDING_OUTBOUND)).thenReturn(3L);
         when(orders.countByStatusAndDeliveryDate(eq(OrderStatus.PENDING_OUTBOUND), any(java.time.LocalDate.class)))
                 .thenReturn(2L);
         when(orders.countByStatus(OrderStatus.ABNORMAL)).thenReturn(1L);
+        when(orders.countByStatusAndDeliveryDateIsNull(OrderStatus.PENDING_OUTBOUND)).thenReturn(1L);
 
         var result = service.today();
 
@@ -81,15 +87,19 @@ class WarehouseProgressServiceTest {
         assertThat(result.pendingOutboundCount()).isEqualTo(3);
         assertThat(result.differenceRecordCount()).isEqualTo(2);
         assertThat(result.totalInboundCount()).isEqualTo(14);
-        assertThat(result.todayPendingOutboundCount()).isEqualTo(2);
+        assertThat(result.todayPendingOutboundCount()).isEqualTo(1);
+        assertThat(result.todayDuePendingOrderCount()).isEqualTo(2);
+        assertThat(result.undatedPendingOrderCount()).isEqualTo(1);
         assertThat(result.completedOutboundCount()).isEqualTo(8);
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("50.0");
-        assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("66.7");
+        assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("33.3");
+        assertThat(result.todayDuePendingOrderPercent()).isEqualByComparingTo("66.7");
         assertThat(result.differencePercent()).isEqualByComparingTo("25.0");
-        assertThat(result.totalOrderCount()).isEqualTo(3);
+        assertThat(result.totalOrderCount()).isEqualTo(4);
         assertThat(result.pendingOutboundOrderCount()).isEqualTo(3);
         assertThat(result.abnormalOrderCount()).isEqualTo(1);
-        assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
+        assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("25.0");
+        verify(outbounds).countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, result.businessDate());
         verify(orders).countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, result.businessDate());
         assertThat(result.timeZone()).isEqualTo("Asia/Shanghai");
 
