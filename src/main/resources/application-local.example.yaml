@@ -10,5 +10,8 @@ spring:
     hibernate:
       ddl-auto: validate
 
-# JWT_SECRET must be set in IntelliJ Run Configuration -> Environment variables.
-# Do not commit the real signing key or bootstrap password.
+# IntelliJ Run Configuration -> Environment variables:
+#   JWT_SECRET=<a private random secret of at least 32 UTF-8 bytes>
+#   ADMIN_PASSWORD=<your local demo admin password, 8-72 characters>
+# The local-only demo account username is always "admin".
+# Do not commit real passwords or JWT signing keys.
