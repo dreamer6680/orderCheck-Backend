@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.packflow.app.inventory.InboundRecordRepository;
+import com.packflow.app.order.SalesOrderRepository;
+import com.packflow.app.order.OrderStatus;
 import com.packflow.app.outbound.OutboundRecordRepository;
 import com.packflow.app.outbound.OutboundStatus;
 import java.time.OffsetDateTime;
@@ -20,19 +22,23 @@ class WarehouseProgressServiceTest {
     void emptyWarehouseReturnsZeroPercentsWithoutDividingByZero() {
         var inbounds = mock(InboundRecordRepository.class);
         var outbounds = mock(OutboundRecordRepository.class);
-        var result = new WarehouseProgressService(inbounds, outbounds, "Asia/Shanghai").today();
+        var orders = mock(SalesOrderRepository.class);
+        var result = new WarehouseProgressService(inbounds, outbounds, orders, "Asia/Shanghai").today();
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("0.0");
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("0.0");
         assertThat(result.differencePercent()).isEqualByComparingTo("0.0");
         assertThat(result.pendingOutboundCount()).isZero();
+        assertThat(result.abnormalOrderCount()).isZero();
+        assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("0.0");
     }
 
     @Test
     void aggregatesRealCountsUsingBusinessDayBoundaries() {
         InboundRecordRepository inbounds = mock(InboundRecordRepository.class);
         OutboundRecordRepository outbounds = mock(OutboundRecordRepository.class);
+        SalesOrderRepository orders = mock(SalesOrderRepository.class);
         WarehouseProgressService service =
-                new WarehouseProgressService(inbounds, outbounds, "Asia/Shanghai");
+                new WarehouseProgressService(inbounds, outbounds, orders, "Asia/Shanghai");
 
         when(inbounds.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 any(OffsetDateTime.class), any(OffsetDateTime.class))).thenReturn(7L);
@@ -46,6 +52,9 @@ class WarehouseProgressServiceTest {
         when(outbounds.countByStatus(OutboundStatus.COMPLETED)).thenReturn(8L);
         when(outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED))
                 .thenReturn(2L);
+        when(orders.count()).thenReturn(3L);
+        when(orders.countByStatus(OrderStatus.PENDING_OUTBOUND)).thenReturn(1L);
+        when(orders.countByStatus(OrderStatus.ABNORMAL)).thenReturn(1L);
 
         var result = service.today();
 
@@ -59,6 +68,10 @@ class WarehouseProgressServiceTest {
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("50.0");
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("66.7");
         assertThat(result.differencePercent()).isEqualByComparingTo("25.0");
+        assertThat(result.totalOrderCount()).isEqualTo(3);
+        assertThat(result.pendingOutboundOrderCount()).isEqualTo(1);
+        assertThat(result.abnormalOrderCount()).isEqualTo(1);
+        assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
         verify(outbounds).countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, result.businessDate());
         assertThat(result.timeZone()).isEqualTo("Asia/Shanghai");
 
