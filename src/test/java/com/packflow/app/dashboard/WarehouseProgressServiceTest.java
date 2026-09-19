@@ -14,6 +14,7 @@ import com.packflow.app.outbound.OutboundRecordRepository;
 import com.packflow.app.outbound.OutboundStatus;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -27,6 +28,7 @@ class WarehouseProgressServiceTest {
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("0.0");
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("0.0");
         assertThat(result.todayDuePendingOrderPercent()).isEqualByComparingTo("0.0");
+        assertThat(result.todayDueUnfulfilledOrderPercent()).isEqualByComparingTo("0.0");
         assertThat(result.undatedPendingOrderCount()).isZero();
         assertThat(result.differencePercent()).isEqualByComparingTo("0.0");
         assertThat(result.pendingOutboundCount()).isZero();
@@ -51,6 +53,30 @@ class WarehouseProgressServiceTest {
         assertThat(result.abnormalOrderCount()).isEqualTo(1);
         assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
         assertThat(result.differenceRecordCount()).isZero();
+    }
+
+    @Test
+    void dueTodayIncludesUnshippedOrdersBeforeCheckingAndAbnormalOrders() {
+        var inbounds = mock(InboundRecordRepository.class);
+        var outbounds = mock(OutboundRecordRepository.class);
+        var orders = mock(SalesOrderRepository.class);
+        List<OrderStatus> open = List.of(OrderStatus.PENDING_CHECK, OrderStatus.PENDING_OUTBOUND,
+                OrderStatus.ABNORMAL);
+        when(orders.countByStatusIn(open)).thenReturn(3L);
+        when(orders.countByStatusInAndDeliveryDate(eq(open), any(java.time.LocalDate.class)))
+                .thenReturn(2L);
+        when(orders.countByStatusInAndDeliveryDateIsNull(open)).thenReturn(1L);
+        when(orders.countByStatusAndDeliveryDate(eq(OrderStatus.PENDING_OUTBOUND),
+                any(java.time.LocalDate.class))).thenReturn(0L);
+
+        var result = new WarehouseProgressService(inbounds, outbounds, orders, "Asia/Shanghai").today();
+
+        assertThat(result.todayDuePendingOrderCount()).isZero();
+        assertThat(result.unfulfilledOrderCount()).isEqualTo(3);
+        assertThat(result.todayDueUnfulfilledOrderCount()).isEqualTo(2);
+        assertThat(result.todayDueUnfulfilledOrderPercent()).isEqualByComparingTo("66.7");
+        assertThat(result.undatedUnfulfilledOrderCount()).isEqualTo(1);
+        verify(orders).countByStatusInAndDeliveryDate(open, result.businessDate());
     }
 
     @Test
@@ -79,6 +105,11 @@ class WarehouseProgressServiceTest {
                 .thenReturn(2L);
         when(orders.countByStatus(OrderStatus.ABNORMAL)).thenReturn(1L);
         when(orders.countByStatusAndDeliveryDateIsNull(OrderStatus.PENDING_OUTBOUND)).thenReturn(1L);
+        var openStatuses = List.of(OrderStatus.PENDING_CHECK, OrderStatus.PENDING_OUTBOUND, OrderStatus.ABNORMAL);
+        when(orders.countByStatusIn(openStatuses)).thenReturn(4L);
+        when(orders.countByStatusInAndDeliveryDate(eq(openStatuses), any(java.time.LocalDate.class)))
+                .thenReturn(2L);
+        when(orders.countByStatusInAndDeliveryDateIsNull(openStatuses)).thenReturn(1L);
 
         var result = service.today();
 
@@ -94,6 +125,8 @@ class WarehouseProgressServiceTest {
         assertThat(result.todayInboundPercent()).isEqualByComparingTo("50.0");
         assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("33.3");
         assertThat(result.todayDuePendingOrderPercent()).isEqualByComparingTo("66.7");
+        assertThat(result.todayDueUnfulfilledOrderCount()).isEqualTo(2);
+        assertThat(result.todayDueUnfulfilledOrderPercent()).isEqualByComparingTo("50.0");
         assertThat(result.differencePercent()).isEqualByComparingTo("25.0");
         assertThat(result.totalOrderCount()).isEqualTo(4);
         assertThat(result.pendingOutboundOrderCount()).isEqualTo(3);
