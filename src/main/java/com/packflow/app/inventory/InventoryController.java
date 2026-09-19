@@ -31,16 +31,32 @@ public class InventoryController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'MANAGER')")
     public List<InventoryService.InventoryProjection> listInventory() {
         return inventoryService.listInventory();
     }
 
+    /** SALES can read stock quantities, but not other tasks' reserved quantities. */
+    @GetMapping("/quantities")
+    @PreAuthorize("hasAnyRole('SALES', 'WAREHOUSE', 'MANAGER')")
+    public List<InventoryQuantity> listQuantities() {
+        return inventoryService.listInventory().stream()
+                .map(item -> new InventoryQuantity(item.productId(), item.sku(), item.productName(),
+                        item.unit(), item.physicalQuantity(), item.availableQuantity()))
+                .toList();
+    }
+
+    public record InventoryQuantity(Long productId, String sku, String productName, String unit,
+            BigDecimal physicalQuantity, BigDecimal availableQuantity) { }
+
     @GetMapping("/{productId}")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'MANAGER')")
     public InventoryService.InventoryProjection inventoryForProduct(@PathVariable Long productId) {
         return inventoryService.inventoryForProduct(productId);
     }
 
     @GetMapping("/inbounds")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'MANAGER')")
     public List<InventoryService.InboundResult> listInboundRecords(@RequestParam(required = false) Long productId) {
         return inventoryService.listInboundRecords(productId);
     }
