@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +51,12 @@ public class WarehouseProgressService {
         long pendingOutboundOrders = orders.countByStatus(OrderStatus.PENDING_OUTBOUND);
         long todayDuePendingOrders = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
         long undatedPendingOrders = orders.countByStatusAndDeliveryDateIsNull(OrderStatus.PENDING_OUTBOUND);
+        // A due order can still need attention before stock verification, or after it becomes abnormal.
+        List<OrderStatus> unfulfilledStatuses = List.of(
+                OrderStatus.PENDING_CHECK, OrderStatus.PENDING_OUTBOUND, OrderStatus.ABNORMAL);
+        long unfulfilledOrders = orders.countByStatusIn(unfulfilledStatuses);
+        long dueTodayUnfulfilled = orders.countByStatusInAndDeliveryDate(unfulfilledStatuses, today);
+        long undatedUnfulfilled = orders.countByStatusInAndDeliveryDateIsNull(unfulfilledStatuses);
         long abnormalOrders = orders.countByStatus(OrderStatus.ABNORMAL);
         return new WarehouseProgressResponse(
                 today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
@@ -58,7 +65,9 @@ public class WarehouseProgressService {
                 percentage(todayPlannedOutbound, pendingOutbound), percentage(differences, completedOutbound),
                 totalOrders, pendingOutboundOrders, abnormalOrders,
                 percentage(abnormalOrders, totalOrders), todayDuePendingOrders,
-                percentage(todayDuePendingOrders, pendingOutboundOrders), undatedPendingOrders);
+                percentage(todayDuePendingOrders, pendingOutboundOrders), undatedPendingOrders,
+                unfulfilledOrders, dueTodayUnfulfilled,
+                percentage(dueTodayUnfulfilled, unfulfilledOrders), undatedUnfulfilled);
     }
 
     /** Returns a percentage rounded to one decimal; no tasks/records means 0%, not 100%. */
@@ -90,6 +99,10 @@ public class WarehouseProgressService {
             BigDecimal abnormalOrderPercent,
             long todayDuePendingOrderCount,
             BigDecimal todayDuePendingOrderPercent,
-            long undatedPendingOrderCount) {
+            long undatedPendingOrderCount,
+            long unfulfilledOrderCount,
+            long todayDueUnfulfilledOrderCount,
+            BigDecimal todayDueUnfulfilledOrderPercent,
+            long undatedUnfulfilledOrderCount) {
     }
 }
