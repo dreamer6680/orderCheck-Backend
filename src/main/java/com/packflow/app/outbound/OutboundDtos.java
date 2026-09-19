@@ -40,6 +40,7 @@ public final class OutboundDtos {
             String recordNo,
             Long orderId,
             String orderNo,
+            String customerName,
             Long orderItemId,
             Long productId,
             String sku,
