@@ -107,6 +107,16 @@ public class OutboundService {
         if (actualQuantity.compareTo(record.getPlannedQuantity()) > 0) {
             throw error(HttpStatus.BAD_REQUEST, "Actual quantity cannot exceed planned quantity");
         }
+        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND && order.getStatus() != OrderStatus.ABNORMAL) {
+            throw error(HttpStatus.CONFLICT, "Order state does not allow outbound");
+        }
+        // Preserve physical stock reserved for other pending tasks, under the inventory row lock.
+        BigDecimal totalPending = inventories.pendingOutboundQuantity(record.getProduct().getId());
+        BigDecimal reservedByOthers = (totalPending == null ? BigDecimal.ZERO : totalPending)
+                .subtract(record.getPlannedQuantity()).max(BigDecimal.ZERO);
+        if (inventory.getQuantity().subtract(reservedByOthers).compareTo(actualQuantity) < 0) {
+            throw error(HttpStatus.CONFLICT, "Insufficient unreserved inventory for this task");
+        }
 
         boolean differs = actualQuantity.compareTo(record.getPlannedQuantity()) != 0;
         String reason = normalize(differenceReason);
@@ -192,7 +202,8 @@ public class OutboundService {
 
     private OutboundResponse response(OutboundRecord record) {
         return new OutboundResponse(record.getId(), record.getRecordNo(), record.getOrder().getId(),
-                record.getOrder().getOrderNo(), record.getOrderItem().getId(), record.getProduct().getId(),
+                record.getOrder().getOrderNo(), record.getOrder().getCustomerName(),
+                record.getOrderItem().getId(), record.getProduct().getId(),
                 record.getProduct().getSku(), record.getProduct().getName(), record.getProduct().getUnit(),
                 record.getPlannedQuantity(), record.getActualQuantity(), record.getStatus(),
                 record.getDifferenceReason(), record.getOperator() == null ? null : record.getOperator().getUsername(),
