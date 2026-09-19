@@ -1,6 +1,7 @@
 package com.packflow.app.order;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.packflow.app.dashboard.WarehouseProgressService;
 import com.packflow.app.inventory.InventoryRepository;
 import com.packflow.app.inventory.InventoryService;
 import com.packflow.app.outbound.OutboundRecordRepository;
@@ -44,6 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class OrderCheckingServiceTest extends PostgresIntegrationTest {
     @Autowired private OrderService orderService;
+    @Autowired private WarehouseProgressService warehouseProgress;
     @Autowired private SalesOrderRepository orderRepository;
     @MockitoSpyBean private OutboundRecordRepository outboundRepository;
     @Autowired private ProductRepository productRepository;
@@ -99,6 +101,33 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dueTodayIncludesUnshippedOrderBeforeAndAfterInventoryCheck() {
+        var before = warehouseProgress.today();
+        var requested = orderService.createOrder(new OrderDtos.CreateOrderRequest(
+                "Due today", before.businessDate(), List.of(item(first, "10"))), "sales");
+
+        var unchecked = warehouseProgress.today();
+        assertThat(requested.status()).isEqualTo(OrderStatus.PENDING_CHECK);
+        assertThat(unchecked.todayDueUnfulfilledOrderCount())
+                .isEqualTo(before.todayDueUnfulfilledOrderCount() + 1);
+        assertThat(unchecked.unfulfilledOrderCount()).isEqualTo(before.unfulfilledOrderCount() + 1);
+
+        orderService.checkInventory(requested.id(), "sales");
+        var checked = warehouseProgress.today();
+        assertThat(checked.todayDueUnfulfilledOrderCount())
+                .isEqualTo(unchecked.todayDueUnfulfilledOrderCount());
+        assertThat(checked.pendingOutboundOrderCount())
+                .isEqualTo(before.pendingOutboundOrderCount() + 1);
+
+        var abnormal = orderService.createOrder(new OrderDtos.CreateOrderRequest(
+                "Due today short stock", before.businessDate(), List.of(item(first, "999"))), "sales");
+        assertThat(orderService.checkInventory(abnormal.id(), "sales").status())
+                .isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(warehouseProgress.today().todayDueUnfulfilledOrderCount())
+                .isEqualTo(checked.todayDueUnfulfilledOrderCount() + 1);
     }
 
     @Test
