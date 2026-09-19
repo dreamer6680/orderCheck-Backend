@@ -57,5 +57,6 @@ public final class OutboundDtos {
             OffsetDateTime completedAt,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt,
-            LocalDate plannedOutboundDate) { }
+            LocalDate plannedOutboundDate,
+            LocalDate deliveryDate) { }
 }
