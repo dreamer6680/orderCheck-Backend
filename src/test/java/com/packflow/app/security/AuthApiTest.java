@@ -113,12 +113,16 @@ class AuthApiTest extends PostgresIntegrationTest {
     }
 
     private String loginToken(String username, String password) throws Exception {
-        return mockMvc.perform(post("/api/auth/login")
+        String body = """
+                {"username":"%s","password":"%s"}
+                """.formatted(username, password);
+        String payload = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\\"username\\":\\"" + username + "\\",\\"password\\":\\"" + password + "\\"}"))
+                        .content(body))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString()
-                .replaceAll(".*\\"token\\":\\"([^\\"]+)\\".*", "$1");
+                .andReturn().getResponse().getContentAsString();
+        return new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(payload).get("token").asText();
     }
 
     private void assertLogin(String username, String password, String displayName, String role) throws Exception {
