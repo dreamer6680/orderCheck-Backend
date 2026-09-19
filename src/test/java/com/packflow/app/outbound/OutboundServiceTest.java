@@ -88,6 +88,24 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void futureDeliveryDoesNotPreventEarlyOutboundAndRemovesOrderFromPendingProgress() {
+        var order = reserve(item(first, "10.000"));
+        var record = rows(order.id()).getFirst();
+        var before = warehouseProgress.today();
+
+        assertThat(order.deliveryDate()).isAfter(before.businessDate());
+        assertThat(record.getPlannedOutboundDate()).isEqualTo(order.deliveryDate());
+        assertThat(outboundService.checkInventory(record.getId(), "warehouse").executable()).isTrue();
+
+        outboundService.complete(record.getId(), new BigDecimal("10.000"), null, "warehouse");
+
+        assertThat(orderRepository.findById(order.id()).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+        assertThat(warehouseProgress.today().pendingOutboundOrderCount())
+                .isEqualTo(before.pendingOutboundOrderCount() - 1);
+    }
+
+    @Test
     void quantityDifferenceRequiresReasonAndMarksOrderAbnormal() {
         var order = reserve(item(first, "10.000"));
         var row = rows(order.id()).getFirst();
