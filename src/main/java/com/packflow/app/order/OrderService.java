@@ -15,6 +15,9 @@ import com.packflow.app.user.AppUserRepository;
 import com.packflow.app.user.Role;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import org.springframework.beans.factory.annotation.Value;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,10 +41,11 @@ public class OrderService {
     private final OutboundRecordRepository outbounds;
     private final AppUserRepository users;
     private final Validator validator;
+    private final ZoneId warehouseZone;
 
     public OrderService(SalesOrderRepository orders, SalesOrderItemRepository items, ProductRepository products,
             InventoryRepository inventories, OutboundRecordRepository outbounds, AppUserRepository users,
-            Validator validator) {
+            Validator validator, @Value("${app.warehouse.time-zone}") String warehouseTimeZone) {
         this.orders = orders;
         this.items = items;
         this.products = products;
@@ -49,6 +53,7 @@ public class OrderService {
         this.outbounds = outbounds;
         this.users = users;
         this.validator = validator;
+        this.warehouseZone = ZoneId.of(warehouseTimeZone);
     }
 
     @Transactional
@@ -142,7 +147,10 @@ public class OrderService {
         if (!shortages.isEmpty()) {
             order.markAbnormal(String.join("; ", shortages));
         } else {
-            for (SalesOrderItem item : orderedItems) outbounds.save(new OutboundRecord(nextNumber("OUT"), item));
+            LocalDate plannedDate = LocalDate.now(warehouseZone);
+            for (SalesOrderItem item : orderedItems) {
+                outbounds.save(new OutboundRecord(nextNumber("OUT"), item, plannedDate));
+            }
             order.markPendingOutbound();
         }
         return response(order);

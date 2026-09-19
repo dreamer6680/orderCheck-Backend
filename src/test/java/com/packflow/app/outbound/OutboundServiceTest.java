@@ -2,6 +2,7 @@ package com.packflow.app.outbound;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packflow.app.inventory.InventoryService;
+import com.packflow.app.dashboard.WarehouseProgressService;
 import com.packflow.app.order.OrderDtos;
 import com.packflow.app.order.OrderService;
 import com.packflow.app.order.OrderStatus;
@@ -10,6 +11,7 @@ import com.packflow.app.product.Product;
 import com.packflow.app.product.ProductRepository;
 import com.packflow.app.support.PostgresIntegrationTest;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -27,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OutboundServiceTest extends PostgresIntegrationTest {
 
     @Autowired private OutboundService outboundService;
+    @Autowired private WarehouseProgressService warehouseProgress;
     @Autowired private OutboundRecordRepository outboundRepository;
     @Autowired private OrderService orderService;
     @Autowired private SalesOrderRepository orderRepository;
@@ -222,12 +226,43 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    @WithMockUser(username = "warehouse", roles = "WAREHOUSE")
+    void reschedulingPendingTaskUpdatesTodaysShareAndIsRejectedAfterCompletion() throws Exception {
+        var order = reserve(item(first, "10.000"));
+        var task = rows(order.id()).getFirst();
+        var before = warehouseProgress.today();
+        LocalDate tomorrow = before.businessDate().plusDays(1);
+        assertThat(task.getPlannedOutboundDate()).isEqualTo(before.businessDate());
+
+        mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"plannedOutboundDate\":\"" + tomorrow + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plannedOutboundDate").value(tomorrow.toString()));
+        var after = warehouseProgress.today();
+        assertThat(after.pendingOutboundCount()).isEqualTo(before.pendingOutboundCount());
+        assertThat(after.todayPendingOutboundCount()).isEqualTo(before.todayPendingOutboundCount() - 1);
+        assertThat(outboundRepository.findById(task.getId()).orElseThrow().getPlannedOutboundDate())
+                .isEqualTo(tomorrow);
+
+        outboundService.complete(task.getId(), new BigDecimal("10.000"), null, "warehouse");
+        mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"plannedOutboundDate\":\"" + before.businessDate() + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
     @WithMockUser(username = "sales", roles = "SALES")
     void apiRejectsSalesRoleForOutboundOperations() throws Exception {
         var order = reserve(item(first, "10.000"));
         var row = rows(order.id()).getFirst();
 
         mvc.perform(get("/api/outbound-records")).andExpect(status().isForbidden());
+        mvc.perform(patch("/api/outbound-records/{id}/schedule", row.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"plannedOutboundDate\":\"2026-09-19\"}"))
+                .andExpect(status().isForbidden());
         mvc.perform(post("/api/outbound-records/{id}/complete", row.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"actualQuantity\":10}"))

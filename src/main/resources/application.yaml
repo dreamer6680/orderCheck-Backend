@@ -16,6 +16,8 @@ spring:
     enabled: true
 
 app:
+  warehouse:
+    time-zone: ${WAREHOUSE_TIME_ZONE:Asia/Shanghai}
   security:
     jwt-expiration: ${JWT_EXPIRATION:86400000}
 

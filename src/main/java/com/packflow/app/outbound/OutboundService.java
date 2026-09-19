@@ -8,6 +8,7 @@ import com.packflow.app.order.SalesOrderRepository;
 import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
 import com.packflow.app.outbound.OutboundDtos.OutboundCheckResponse;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import com.packflow.app.user.AppUser;
 import com.packflow.app.user.AppUserRepository;
 import com.packflow.app.user.Role;
@@ -142,6 +143,15 @@ public class OutboundService {
     }
 
     @Transactional
+    public OutboundResponse reschedule(Long recordId, LocalDate plannedDate, String username) {
+        requireOperator(username);
+        if (plannedDate == null) throw error(HttpStatus.BAD_REQUEST, "Planned outbound date is required");
+        OutboundRecord record = lockPending(recordId);
+        record.reschedule(plannedDate);
+        return response(record);
+    }
+
+    @Transactional
     public OutboundResponse cancel(Long recordId, String username) {
         requireOperator(username);
         OutboundRecord snapshot = outbounds.findById(recordId)
@@ -207,7 +217,8 @@ public class OutboundService {
                 record.getProduct().getSku(), record.getProduct().getName(), record.getProduct().getUnit(),
                 record.getPlannedQuantity(), record.getActualQuantity(), record.getStatus(),
                 record.getDifferenceReason(), record.getOperator() == null ? null : record.getOperator().getUsername(),
-                record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt());
+                record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt(),
+                record.getPlannedOutboundDate());
     }
 
     private String normalize(String value) {
