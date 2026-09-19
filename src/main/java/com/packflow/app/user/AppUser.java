@@ -33,6 +33,9 @@ public class AppUser {
     @Column(nullable = false)
     private boolean enabled;
 
+    @Column(name = "token_version", nullable = false)
+    private long tokenVersion;
+
     protected AppUser() {
     }
 
@@ -45,6 +48,9 @@ public class AppUser {
     }
 
     public void updateProfile(String displayName, Role role, boolean enabled) {
+        if (this.role != role || this.enabled != enabled) {
+            tokenVersion++;
+        }
         this.displayName = displayName;
         this.role = role;
         this.enabled = enabled;
@@ -55,6 +61,11 @@ public class AppUser {
             throw new IllegalArgumentException("Password hash is required");
         }
         this.passwordHash = passwordHash;
+        tokenVersion++;
+    }
+
+    public long getTokenVersion() {
+        return tokenVersion;
     }
 
     public Long getId() {
