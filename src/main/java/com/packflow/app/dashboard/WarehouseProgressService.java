@@ -1,6 +1,8 @@
 package com.packflow.app.dashboard;
 
 import com.packflow.app.inventory.InboundRecordRepository;
+import com.packflow.app.order.OrderStatus;
+import com.packflow.app.order.SalesOrderRepository;
 import com.packflow.app.outbound.OutboundRecordRepository;
 import com.packflow.app.outbound.OutboundStatus;
 import java.time.LocalDate;
@@ -16,14 +18,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class WarehouseProgressService {
     private final InboundRecordRepository inbounds;
     private final OutboundRecordRepository outbounds;
+    private final SalesOrderRepository orders;
     private final ZoneId businessZone;
 
     public WarehouseProgressService(
             InboundRecordRepository inbounds,
             OutboundRecordRepository outbounds,
+            SalesOrderRepository orders,
             @Value("${app.warehouse.time-zone}") String timeZone) {
         this.inbounds = inbounds;
         this.outbounds = outbounds;
+        this.orders = orders;
         this.businessZone = ZoneId.of(timeZone);
     }
 
@@ -41,11 +46,16 @@ public class WarehouseProgressService {
         long todayPendingOutbound = outbounds.countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, today);
         long completedOutbound = outbounds.countByStatus(OutboundStatus.COMPLETED);
         long differences = outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED);
+        long totalOrders = orders.count();
+        long pendingOutboundOrders = orders.countByStatus(OrderStatus.PENDING_OUTBOUND);
+        long abnormalOrders = orders.countByStatus(OrderStatus.ABNORMAL);
         return new WarehouseProgressResponse(
                 today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
                 differences, OffsetDateTime.now(businessZone), totalInbound, todayPendingOutbound,
                 completedOutbound, percentage(todayInbound, totalInbound),
-                percentage(todayPendingOutbound, pendingOutbound), percentage(differences, completedOutbound));
+                percentage(todayPendingOutbound, pendingOutbound), percentage(differences, completedOutbound),
+                totalOrders, pendingOutboundOrders, abnormalOrders,
+                percentage(abnormalOrders, totalOrders));
     }
 
     /** Returns a percentage rounded to one decimal; no tasks/records means 0%, not 100%. */
@@ -70,6 +80,10 @@ public class WarehouseProgressService {
             long completedOutboundCount,
             BigDecimal todayInboundPercent,
             BigDecimal todayPendingOutboundPercent,
-            BigDecimal differencePercent) {
+            BigDecimal differencePercent,
+            long totalOrderCount,
+            long pendingOutboundOrderCount,
+            long abnormalOrderCount,
+            BigDecimal abnormalOrderPercent) {
     }
 }
