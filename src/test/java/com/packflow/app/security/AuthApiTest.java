@@ -34,6 +34,11 @@ class AuthApiTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void localYamlCreatesDemoAdministratorWithoutEnvironmentVariables() throws Exception {
+        assertLogin("admin", "123456", "Demo Administrator", "MANAGER");
+    }
+
+    @Test
     void rejectsInvalidCredentials() throws Exception {
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
