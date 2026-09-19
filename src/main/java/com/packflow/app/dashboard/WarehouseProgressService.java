@@ -43,19 +43,22 @@ public class WarehouseProgressService {
         long todayOutbound = outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
                 OutboundStatus.COMPLETED, start, end);
         long pendingOutbound = outbounds.countByStatus(OutboundStatus.PENDING);
+        long todayPlannedOutbound = outbounds.countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, today);
         long completedOutbound = outbounds.countByStatus(OutboundStatus.COMPLETED);
         long differences = outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED);
         long totalOrders = orders.count();
         long pendingOutboundOrders = orders.countByStatus(OrderStatus.PENDING_OUTBOUND);
-        long todayPendingOutbound = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
+        long todayDuePendingOrders = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
+        long undatedPendingOrders = orders.countByStatusAndDeliveryDateIsNull(OrderStatus.PENDING_OUTBOUND);
         long abnormalOrders = orders.countByStatus(OrderStatus.ABNORMAL);
         return new WarehouseProgressResponse(
                 today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
-                differences, OffsetDateTime.now(businessZone), totalInbound, todayPendingOutbound,
+                differences, OffsetDateTime.now(businessZone), totalInbound, todayPlannedOutbound,
                 completedOutbound, percentage(todayInbound, totalInbound),
-                percentage(todayPendingOutbound, pendingOutboundOrders), percentage(differences, completedOutbound),
+                percentage(todayPlannedOutbound, pendingOutbound), percentage(differences, completedOutbound),
                 totalOrders, pendingOutboundOrders, abnormalOrders,
-                percentage(abnormalOrders, totalOrders));
+                percentage(abnormalOrders, totalOrders), todayDuePendingOrders,
+                percentage(todayDuePendingOrders, pendingOutboundOrders), undatedPendingOrders);
     }
 
     /** Returns a percentage rounded to one decimal; no tasks/records means 0%, not 100%. */
@@ -84,6 +87,9 @@ public class WarehouseProgressService {
             long totalOrderCount,
             long pendingOutboundOrderCount,
             long abnormalOrderCount,
-            BigDecimal abnormalOrderPercent) {
+            BigDecimal abnormalOrderPercent,
+            long todayDuePendingOrderCount,
+            BigDecimal todayDuePendingOrderPercent,
+            long undatedPendingOrderCount) {
     }
 }
