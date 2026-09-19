@@ -14,6 +14,9 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
     long countByStatus(OrderStatus status);
     long countByStatusAndDeliveryDate(OrderStatus status, LocalDate deliveryDate);
     long countByStatusAndDeliveryDateIsNull(OrderStatus status);
+    long countByStatusIn(List<OrderStatus> statuses);
+    long countByStatusInAndDeliveryDate(List<OrderStatus> statuses, LocalDate deliveryDate);
+    long countByStatusInAndDeliveryDateIsNull(List<OrderStatus> statuses);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from SalesOrder o where o.id = :id")
     Optional<SalesOrder> findByIdForUpdate(@Param("id") Long id);
