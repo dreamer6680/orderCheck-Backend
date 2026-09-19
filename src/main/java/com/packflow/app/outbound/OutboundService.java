@@ -6,6 +6,8 @@ import com.packflow.app.order.OrderStatus;
 import com.packflow.app.order.SalesOrder;
 import com.packflow.app.order.SalesOrderRepository;
 import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
+import com.packflow.app.outbound.OutboundDtos.OutboundCheckResponse;
+import java.time.OffsetDateTime;
 import com.packflow.app.user.AppUser;
 import com.packflow.app.user.AppUserRepository;
 import com.packflow.app.user.Role;
@@ -40,6 +42,50 @@ public class OutboundService {
         return records.stream().map(this::response).toList();
     }
 
+
+    @Transactional(readOnly = true)
+    public OutboundResponse detail(Long recordId, String username) {
+        requireOperator(username);
+        return response(outbounds.findById(recordId)
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Outbound record not found")));
+    }
+
+    /**
+     * Returns a snapshot for warehouse preflight. This never reserves or deducts stock.
+     * The complete action must independently revalidate under its existing write locks.
+     */
+    @Transactional(readOnly = true)
+    public OutboundCheckResponse checkInventory(Long recordId, String username) {
+        requireOperator(username);
+        OutboundRecord record = outbounds.findById(recordId)
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Outbound record not found"));
+        BigDecimal physical = inventories.findByProductId(record.getProduct().getId())
+                .map(Inventory::getQuantity).orElse(BigDecimal.ZERO);
+        BigDecimal reserved = inventories.pendingOutboundQuantity(record.getProduct().getId());
+        if (reserved == null) reserved = BigDecimal.ZERO;
+        // Other tasks' reservations are unavailable to this task; its own reservation is usable.
+        BigDecimal otherReservations = reserved.subtract(
+                record.getStatus() == OutboundStatus.PENDING ? record.getPlannedQuantity() : BigDecimal.ZERO);
+        BigDecimal availableForTask = physical.subtract(otherReservations).max(BigDecimal.ZERO);
+        String reason = null;
+        if (record.getStatus() != OutboundStatus.PENDING) {
+            reason = "Outbound record is no longer pending";
+        } else if (record.getOrder().getStatus() != OrderStatus.PENDING_OUTBOUND
+                && record.getOrder().getStatus() != OrderStatus.ABNORMAL) {
+            reason = "Order state does not allow outbound";
+        } else if (physical.compareTo(record.getPlannedQuantity()) < 0) {
+            reason = "Insufficient physical inventory";
+        } else if (availableForTask.compareTo(record.getPlannedQuantity()) < 0) {
+            reason = "Inventory is reserved by other outbound tasks";
+        }
+        return new OutboundCheckResponse(record.getId(), record.getRecordNo(),
+                record.getOrder().getId(), record.getOrder().getOrderNo(),
+                record.getOrder().getCustomerName(), record.getProduct().getId(),
+                record.getProduct().getSku(), record.getProduct().getName(), record.getProduct().getUnit(),
+                record.getPlannedQuantity(), physical, reserved, availableForTask,
+                record.getStatus(), reason == null, reason, OffsetDateTime.now());
+    }
+
     @Transactional
     public OutboundResponse complete(Long recordId, BigDecimal actualQuantity, String differenceReason,
             String username) {
@@ -60,6 +106,16 @@ public class OutboundService {
         }
         if (actualQuantity.compareTo(record.getPlannedQuantity()) > 0) {
             throw error(HttpStatus.BAD_REQUEST, "Actual quantity cannot exceed planned quantity");
+        }
+        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND && order.getStatus() != OrderStatus.ABNORMAL) {
+            throw error(HttpStatus.CONFLICT, "Order state does not allow outbound");
+        }
+        // Preserve physical stock reserved for other pending tasks, under the inventory row lock.
+        BigDecimal totalPending = inventories.pendingOutboundQuantity(record.getProduct().getId());
+        BigDecimal reservedByOthers = (totalPending == null ? BigDecimal.ZERO : totalPending)
+                .subtract(record.getPlannedQuantity()).max(BigDecimal.ZERO);
+        if (inventory.getQuantity().subtract(reservedByOthers).compareTo(actualQuantity) < 0) {
+            throw error(HttpStatus.CONFLICT, "Insufficient unreserved inventory for this task");
         }
 
         boolean differs = actualQuantity.compareTo(record.getPlannedQuantity()) != 0;
@@ -146,7 +202,8 @@ public class OutboundService {
 
     private OutboundResponse response(OutboundRecord record) {
         return new OutboundResponse(record.getId(), record.getRecordNo(), record.getOrder().getId(),
-                record.getOrder().getOrderNo(), record.getOrderItem().getId(), record.getProduct().getId(),
+                record.getOrder().getOrderNo(), record.getOrder().getCustomerName(),
+                record.getOrderItem().getId(), record.getProduct().getId(),
                 record.getProduct().getSku(), record.getProduct().getName(), record.getProduct().getUnit(),
                 record.getPlannedQuantity(), record.getActualQuantity(), record.getStatus(),
                 record.getDifferenceReason(), record.getOperator() == null ? null : record.getOperator().getUsername(),

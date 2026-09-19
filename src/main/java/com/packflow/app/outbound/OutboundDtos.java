@@ -15,11 +15,32 @@ public final class OutboundDtos {
             BigDecimal actualQuantity,
             @Size(max = 500) String differenceReason) { }
 
+    /** Read-only stock snapshot; completion still validates stock under a database lock. */
+    public record OutboundCheckResponse(
+            Long outboundId,
+            String recordNo,
+            Long orderId,
+            String orderNo,
+            String customerName,
+            Long productId,
+            String sku,
+            String productName,
+            String unit,
+            BigDecimal plannedQuantity,
+            BigDecimal physicalQuantity,
+            BigDecimal reservedQuantity,
+            BigDecimal availableForTask,
+            OutboundStatus status,
+            boolean executable,
+            String reason,
+            OffsetDateTime checkedAt) { }
+
     public record OutboundResponse(
             Long id,
             String recordNo,
             Long orderId,
             String orderNo,
+            String customerName,
             Long orderItemId,
             Long productId,
             String sku,

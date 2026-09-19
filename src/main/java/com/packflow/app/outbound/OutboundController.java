@@ -1,6 +1,7 @@
 package com.packflow.app.outbound;
 
 import com.packflow.app.outbound.OutboundDtos.CompleteRequest;
+import com.packflow.app.outbound.OutboundDtos.OutboundCheckResponse;
 import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
 import com.packflow.app.security.JwtPrincipal;
 import jakarta.validation.Valid;
@@ -27,6 +28,16 @@ public class OutboundController {
     public List<OutboundResponse> list(@RequestParam(required = false) OutboundStatus status,
             Authentication authentication) {
         return service.list(status, username(authentication));
+    }
+
+    @GetMapping("/{id}")
+    public OutboundResponse detail(@PathVariable Long id, Authentication authentication) {
+        return service.detail(id, username(authentication));
+    }
+
+    @GetMapping("/{id}/check-inventory")
+    public OutboundCheckResponse checkInventory(@PathVariable Long id, Authentication authentication) {
+        return service.checkInventory(id, username(authentication));
     }
 
     @PostMapping("/{id}/complete")

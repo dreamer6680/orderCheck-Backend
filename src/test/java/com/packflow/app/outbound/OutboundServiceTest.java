@@ -146,6 +146,27 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void completionCannotConsumeStockReservedForAnotherPendingTask() {
+        var firstOrder = reserve(item(first, "6.000"));
+        var secondOrder = reserve(item(first, "4.000"));
+        var firstTask = rows(firstOrder.id()).getFirst();
+        var secondTask = rows(secondOrder.id()).getFirst();
+        jdbc.update("update inventory set quantity = 7.000 where product_id = ?", first.getId());
+
+        var check = outboundService.checkInventory(firstTask.getId(), "warehouse");
+        assertThat(check.executable()).isFalse();
+        assertThat(check.availableForTask()).isEqualByComparingTo("3.000");
+
+        conflict(() -> outboundService.complete(firstTask.getId(), new BigDecimal("6.000"), null, "warehouse"));
+        assertThat(outboundRepository.findById(firstTask.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+        assertThat(outboundRepository.findById(secondTask.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).physicalQuantity())
+                .isEqualByComparingTo("7.000");
+    }
+
+    @Test
     void completedRecordCannotBeCompletedOrCancelledAgain() {
         var order = reserve(item(first, "10.000"));
         var row = rows(order.id()).getFirst();
@@ -212,6 +233,81 @@ class OutboundServiceTest extends PostgresIntegrationTest {
                         .content("{\"actualQuantity\":10}"))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/outbound-records/{id}/cancel", row.getId())).andExpect(status().isForbidden());
+    }
+
+
+    @Test
+    void pendingTaskCheckReportsStockAndNeverMutatesInventory() {
+        var order = reserve(item(first, "20.000"));
+        var row = rows(order.id()).getFirst();
+
+        var check = outboundService.checkInventory(row.getId(), "warehouse");
+
+        assertThat(check.executable()).isTrue();
+        assertThat(check.reason()).isNull();
+        assertThat(check.plannedQuantity()).isEqualByComparingTo("20.000");
+        assertThat(check.physicalQuantity()).isEqualByComparingTo("100.000");
+        assertThat(check.reservedQuantity()).isEqualByComparingTo("20.000");
+        assertThat(check.availableForTask()).isEqualByComparingTo("100.000");
+        assertThat(check.checkedAt()).isNotNull();
+        assertThat(outboundRepository.findById(row.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).physicalQuantity())
+                .isEqualByComparingTo("100.000");
+    }
+
+    @Test
+    void pendingTaskCheckDetectsShortageWithoutChangingTaskStatus() {
+        var order = reserve(item(first, "20.000"));
+        var row = rows(order.id()).getFirst();
+        jdbc.update("update inventory set quantity = 5.000 where product_id = ?", first.getId());
+
+        var check = outboundService.checkInventory(row.getId(), "warehouse");
+
+        assertThat(check.executable()).isFalse();
+        assertThat(check.reason()).isEqualTo("Insufficient physical inventory");
+        assertThat(check.physicalQuantity()).isEqualByComparingTo("5.000");
+        assertThat(outboundRepository.findById(row.getId()).orElseThrow().getStatus())
+                .isEqualTo(OutboundStatus.PENDING);
+    }
+
+    @Test
+    void completedTaskIsNotEligibleForAnotherCheck() {
+        var order = reserve(item(first, "10.000"));
+        var row = rows(order.id()).getFirst();
+        outboundService.complete(row.getId(), new BigDecimal("10.000"), null, "warehouse");
+
+        var check = outboundService.checkInventory(row.getId(), "warehouse");
+
+        assertThat(check.executable()).isFalse();
+        assertThat(check.reason()).isEqualTo("Outbound record is no longer pending");
+    }
+
+    @Test
+    @WithMockUser(username = "warehouse", roles = "WAREHOUSE")
+    void apiExposesTaskDetailAndInventoryCheck() throws Exception {
+        var order = reserve(item(first, "10.000"));
+        var row = rows(order.id()).getFirst();
+
+        mvc.perform(get("/api/outbound-records/{id}", row.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordNo").value(row.getRecordNo()));
+        mvc.perform(get("/api/outbound-records/{id}/check-inventory", row.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executable").value(true))
+                .andExpect(jsonPath("$.plannedQuantity").value(10.000))
+                .andExpect(jsonPath("$.availableForTask").value(100.000));
+        mvc.perform(get("/api/outbound-records/{id}/check-inventory", -999))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "sales", roles = "SALES")
+    void apiRejectsSalesRoleForTaskInventoryCheck() throws Exception {
+        var order = reserve(item(first, "10.000"));
+        var row = rows(order.id()).getFirst();
+        mvc.perform(get("/api/outbound-records/{id}/check-inventory", row.getId()))
+                .andExpect(status().isForbidden());
     }
 
     private OrderDtos.OrderResponse reserve(OrderDtos.ItemRequest... items) {
