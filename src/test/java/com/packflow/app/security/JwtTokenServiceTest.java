@@ -1,5 +1,6 @@
 package com.packflow.app.security;
 
+import com.packflow.app.user.AppUser;
 import com.packflow.app.user.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -20,7 +21,7 @@ class JwtTokenServiceTest {
     void createsConfiguredHmacTokenWithRequiredClaims() {
         JwtTokenService tokenService = new JwtTokenService(SECRET, 60_000);
 
-        String token = tokenService.createToken("manager", Role.MANAGER);
+        String token = tokenService.createToken(new AppUser("manager", "hashed", "Manager", Role.MANAGER, true));
         Claims claims = Jwts.parser()
                 .verifyWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
                 .build()
@@ -29,6 +30,7 @@ class JwtTokenServiceTest {
 
         assertThat(claims.getSubject()).isEqualTo("manager");
         assertThat(claims.get("role", String.class)).isEqualTo("MANAGER");
+        assertThat(((Number) claims.get("tokenVersion")).longValue()).isZero();
         assertThat(claims.getIssuedAt()).isNotNull();
         assertThat(claims.getExpiration()).isNotNull();
         assertThat(Duration.between(claims.getIssuedAt().toInstant(), claims.getExpiration().toInstant()))
@@ -39,7 +41,7 @@ class JwtTokenServiceTest {
     void rejectsTamperedTokens() {
         JwtTokenService tokenService = new JwtTokenService(SECRET, 60_000);
 
-        assertThatThrownBy(() -> tokenService.parse(tokenService.createToken("sales", Role.SALES) + "tampered"))
+        assertThatThrownBy(() -> tokenService.parse(tokenService.createToken(new AppUser("sales", "hashed", "Sales", Role.SALES, true)) + "tampered"))
                 .isInstanceOf(JwtException.class);
     }
 
@@ -47,7 +49,7 @@ class JwtTokenServiceTest {
     void rejectsExpiredTokens() {
         JwtTokenService tokenService = new JwtTokenService(SECRET, -1);
 
-        assertThatThrownBy(() -> tokenService.parse(tokenService.createToken("sales", Role.SALES)))
+        assertThatThrownBy(() -> tokenService.parse(tokenService.createToken(new AppUser("sales", "hashed", "Sales", Role.SALES, true))))
                 .isInstanceOf(JwtException.class);
     }
 }

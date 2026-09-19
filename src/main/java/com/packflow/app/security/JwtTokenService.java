@@ -1,5 +1,6 @@
 package com.packflow.app.security;
 
+import com.packflow.app.user.AppUser;
 import com.packflow.app.user.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -24,11 +25,16 @@ public class JwtTokenService {
         this.expirationMillis = expirationMillis;
     }
 
-    public String createToken(String username, Role role) {
+    public String createToken(AppUser user) {
+        return createToken(user.getUsername(), user.getRole(), user.getTokenVersion());
+    }
+
+    private String createToken(String username, Role role, long tokenVersion) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(username)
                 .claim("role", role.name())
+                .claim("tokenVersion", tokenVersion)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(expirationMillis)))
                 .signWith(signingKey)
@@ -41,6 +47,11 @@ public class JwtTokenService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return new JwtPrincipal(claims.getSubject(), Role.valueOf(claims.get("role", String.class)));
+        Object version = claims.get("tokenVersion");
+        if (!(version instanceof Number number)) {
+            throw new IllegalArgumentException("Token version missing");
+        }
+        return new JwtPrincipal(claims.getSubject(), Role.valueOf(claims.get("role", String.class)),
+                number.longValue());
     }
 }
