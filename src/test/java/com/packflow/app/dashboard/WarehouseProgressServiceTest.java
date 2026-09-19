@@ -17,6 +17,17 @@ import org.mockito.ArgumentCaptor;
 
 class WarehouseProgressServiceTest {
     @Test
+    void emptyWarehouseReturnsZeroPercentsWithoutDividingByZero() {
+        var inbounds = mock(InboundRecordRepository.class);
+        var outbounds = mock(OutboundRecordRepository.class);
+        var result = new WarehouseProgressService(inbounds, outbounds, "Asia/Shanghai").today();
+        assertThat(result.todayInboundPercent()).isEqualByComparingTo("0.0");
+        assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("0.0");
+        assertThat(result.differencePercent()).isEqualByComparingTo("0.0");
+        assertThat(result.pendingOutboundCount()).isZero();
+    }
+
+    @Test
     void aggregatesRealCountsUsingBusinessDayBoundaries() {
         InboundRecordRepository inbounds = mock(InboundRecordRepository.class);
         OutboundRecordRepository outbounds = mock(OutboundRecordRepository.class);
@@ -28,7 +39,11 @@ class WarehouseProgressServiceTest {
         when(outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
                 eq(OutboundStatus.COMPLETED),
                 any(OffsetDateTime.class), any(OffsetDateTime.class))).thenReturn(5L);
+        when(inbounds.count()).thenReturn(14L);
         when(outbounds.countByStatus(OutboundStatus.PENDING)).thenReturn(3L);
+        when(outbounds.countByStatusAndPlannedOutboundDate(eq(OutboundStatus.PENDING), any(java.time.LocalDate.class)))
+                .thenReturn(2L);
+        when(outbounds.countByStatus(OutboundStatus.COMPLETED)).thenReturn(8L);
         when(outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED))
                 .thenReturn(2L);
 
@@ -38,6 +53,13 @@ class WarehouseProgressServiceTest {
         assertThat(result.todayOutboundCount()).isEqualTo(5);
         assertThat(result.pendingOutboundCount()).isEqualTo(3);
         assertThat(result.differenceRecordCount()).isEqualTo(2);
+        assertThat(result.totalInboundCount()).isEqualTo(14);
+        assertThat(result.todayPendingOutboundCount()).isEqualTo(2);
+        assertThat(result.completedOutboundCount()).isEqualTo(8);
+        assertThat(result.todayInboundPercent()).isEqualByComparingTo("50.0");
+        assertThat(result.todayPendingOutboundPercent()).isEqualByComparingTo("66.7");
+        assertThat(result.differencePercent()).isEqualByComparingTo("25.0");
+        verify(outbounds).countByStatusAndPlannedOutboundDate(OutboundStatus.PENDING, result.businessDate());
         assertThat(result.timeZone()).isEqualTo("Asia/Shanghai");
 
         ArgumentCaptor<OffsetDateTime> start = ArgumentCaptor.forClass(OffsetDateTime.class);
