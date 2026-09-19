@@ -14,6 +14,7 @@ import com.packflow.app.user.AppUserRepository;
 import com.packflow.app.user.Role;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Comparator;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,9 +41,20 @@ public class OutboundService {
         List<OutboundRecord> records = status == null
                 ? outbounds.findAllByOrderByCreatedAtDescIdDesc()
                 : outbounds.findByStatusOrderByCreatedAtDescIdDesc(status);
-        return records.stream().map(this::response).toList();
+        return records.stream().map(this::response)
+                .sorted(Comparator.comparing(OutboundResponse::deliveryDate,
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(OutboundResponse::id))
+                .toList();
     }
 
+
+    @Transactional(readOnly = true)
+    public List<OutboundResponse> list(OutboundStatus status, LocalDate deliveryDate, String username) {
+        return list(status, username).stream()
+                .filter(record -> deliveryDate == null || deliveryDate.equals(record.deliveryDate()))
+                .toList();
+    }
 
     @Transactional(readOnly = true)
     public OutboundResponse detail(Long recordId, String username) {
@@ -218,7 +230,7 @@ public class OutboundService {
                 record.getPlannedQuantity(), record.getActualQuantity(), record.getStatus(),
                 record.getDifferenceReason(), record.getOperator() == null ? null : record.getOperator().getUsername(),
                 record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt(),
-                record.getPlannedOutboundDate());
+                record.getPlannedOutboundDate(), record.getOrder().getDeliveryDate());
     }
 
     private String normalize(String value) {
