@@ -33,6 +33,24 @@ class WarehouseProgressServiceTest {
     }
 
     @Test
+    void abnormalOrdersAreCountedEvenWhenThereAreNoOutboundRecords() {
+        var inbounds = mock(InboundRecordRepository.class);
+        var outbounds = mock(OutboundRecordRepository.class);
+        var orders = mock(SalesOrderRepository.class);
+        when(orders.count()).thenReturn(3L);
+        when(orders.countByStatus(OrderStatus.PENDING_OUTBOUND)).thenReturn(1L);
+        when(orders.countByStatus(OrderStatus.ABNORMAL)).thenReturn(1L);
+
+        var result = new WarehouseProgressService(inbounds, outbounds, orders, "Asia/Shanghai").today();
+
+        assertThat(result.pendingOutboundOrderCount()).isEqualTo(1);
+        assertThat(result.pendingOutboundCount()).isZero();
+        assertThat(result.abnormalOrderCount()).isEqualTo(1);
+        assertThat(result.abnormalOrderPercent()).isEqualByComparingTo("33.3");
+        assertThat(result.differenceRecordCount()).isZero();
+    }
+
+    @Test
     void aggregatesRealCountsUsingBusinessDayBoundaries() {
         InboundRecordRepository inbounds = mock(InboundRecordRepository.class);
         OutboundRecordRepository outbounds = mock(OutboundRecordRepository.class);
