@@ -1,8 +1,6 @@
 spring:
   application:
     name: packflow-backend
-  profiles:
-    default: local
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/packflow}
     username: ${DATABASE_USERNAME:packflow}
