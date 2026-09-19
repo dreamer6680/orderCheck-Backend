@@ -73,7 +73,7 @@ public class OrderService {
             if (!product.isEnabled()) throw error(HttpStatus.BAD_REQUEST, "Product is disabled");
             orderedProducts.add(product);
         }
-        SalesOrder order = orders.save(new SalesOrder(nextNumber("SO"), request.customerName().trim(), creator));
+        SalesOrder order = orders.save(new SalesOrder(nextNumber("SO"), request.customerName().trim(), creator, request.deliveryDate()));
         for (int i = 0; i < request.items().size(); i++) {
             items.save(new SalesOrderItem(order, orderedProducts.get(i), request.items().get(i).orderedQuantity()));
         }
@@ -92,6 +92,19 @@ public class OrderService {
     public OrderResponse getOrder(Long orderId, String username) {
         requireUser(username, false);
         return response(orders.findById(orderId).orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Order not found")));
+    }
+
+    @Transactional
+    public OrderResponse changeDeliveryDate(Long orderId, LocalDate deliveryDate, String username) {
+        requireUser(username, true);
+        if (deliveryDate == null) throw error(HttpStatus.BAD_REQUEST, "Delivery date is required");
+        SalesOrder order = lockOrder(orderId);
+        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw error(HttpStatus.CONFLICT, "Cannot change delivery date of completed or cancelled order");
+        }
+        order.changeDeliveryDate(deliveryDate);
+        // The outbound plan is separate: moving a customer's delivery promise must not delay an existing task.
+        return response(order);
     }
 
     @Transactional
@@ -147,7 +160,8 @@ public class OrderService {
         if (!shortages.isEmpty()) {
             order.markAbnormal(String.join("; ", shortages));
         } else {
-            LocalDate plannedDate = LocalDate.now(warehouseZone);
+            LocalDate plannedDate = order.getDeliveryDate() == null
+                    ? LocalDate.now(warehouseZone) : order.getDeliveryDate();
             for (SalesOrderItem item : orderedItems) {
                 outbounds.save(new OutboundRecord(nextNumber("OUT"), item, plannedDate));
             }
@@ -186,7 +200,7 @@ public class OrderService {
                 .map(item -> new ItemResponse(item.getId(), item.getProduct().getId(), item.getProduct().getSku(),
                         item.getProduct().getName(), item.getProduct().getUnit(), item.getOrderedQuantity())).toList();
         return new OrderResponse(order.getId(), order.getOrderNo(), order.getCustomerName(), order.getStatus(),
-                order.getExceptionReason(), order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(), details);
+                order.getDeliveryDate(), order.getExceptionReason(), order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(), details);
     }
 
     private String nextNumber(String prefix) { return prefix + "-" + UUID.randomUUID().toString().replace("-", ""); }
