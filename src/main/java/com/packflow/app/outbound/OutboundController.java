@@ -7,6 +7,7 @@ import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
 import com.packflow.app.security.JwtPrincipal;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.time.LocalDate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,8 +29,8 @@ public class OutboundController {
 
     @GetMapping
     public List<OutboundResponse> list(@RequestParam(required = false) OutboundStatus status,
-            Authentication authentication) {
-        return service.list(status, username(authentication));
+            @RequestParam(required = false) LocalDate deliveryDate, Authentication authentication) {
+        return service.list(status, deliveryDate, username(authentication));
     }
 
     @GetMapping("/{id}")
