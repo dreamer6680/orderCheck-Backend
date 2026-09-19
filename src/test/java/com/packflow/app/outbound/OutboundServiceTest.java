@@ -236,7 +236,7 @@ class OutboundServiceTest extends PostgresIntegrationTest {
 
         mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\\"plannedOutboundDate\\":\\"" + tomorrow + "\\"}"))
+                        .content("{\"plannedOutboundDate\":\"" + tomorrow + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plannedOutboundDate").value(tomorrow.toString()));
         var after = warehouseProgress.today();
@@ -248,7 +248,7 @@ class OutboundServiceTest extends PostgresIntegrationTest {
         outboundService.complete(task.getId(), new BigDecimal("10.000"), null, "warehouse");
         mvc.perform(patch("/api/outbound-records/{id}/schedule", task.getId())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\\"plannedOutboundDate\\":\\"" + before.businessDate() + "\\"}"))
+                        .content("{\"plannedOutboundDate\":\"" + before.businessDate() + "\"}"))
                 .andExpect(status().isConflict());
     }
 
