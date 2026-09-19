@@ -43,11 +43,11 @@ public class WarehouseProgressService {
         long todayOutbound = outbounds.countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
                 OutboundStatus.COMPLETED, start, end);
         long pendingOutbound = outbounds.countByStatus(OutboundStatus.PENDING);
-        long todayPendingOutbound = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
         long completedOutbound = outbounds.countByStatus(OutboundStatus.COMPLETED);
         long differences = outbounds.countByStatusAndDifferenceReasonIsNotNull(OutboundStatus.COMPLETED);
         long totalOrders = orders.count();
         long pendingOutboundOrders = orders.countByStatus(OrderStatus.PENDING_OUTBOUND);
+        long todayPendingOutbound = orders.countByStatusAndDeliveryDate(OrderStatus.PENDING_OUTBOUND, today);
         long abnormalOrders = orders.countByStatus(OrderStatus.ABNORMAL);
         return new WarehouseProgressResponse(
                 today, businessZone.getId(), todayInbound, todayOutbound, pendingOutbound,
