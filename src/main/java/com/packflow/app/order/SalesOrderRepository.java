@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
+    long countByStatus(OrderStatus status);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from SalesOrder o where o.id = :id")
     Optional<SalesOrder> findByIdForUpdate(@Param("id") Long id);
