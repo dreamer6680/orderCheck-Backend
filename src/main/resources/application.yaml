@@ -42,7 +42,12 @@ app:
   security:
     jwt-secret: "local-only-packflow-jwt-secret-please-never-use-this-outside-development"
   demo:
-    admin-password: "123456"
+    # Demo credentials are deliberately enabled only by the local profile.
+    # Override through environment variables; never use these defaults in production.
+    admin-password: ${DEMO_ADMIN_PASSWORD:123456}
+    sales-password: ${DEMO_SALES_PASSWORD:sales123}
+    warehouse-password: ${DEMO_WAREHOUSE_PASSWORD:warehouse123}
+    manager-password: ${DEMO_MANAGER_PASSWORD:manager123}
 
 ---
 # Production has no sample JWT signing key or demo admin password.
