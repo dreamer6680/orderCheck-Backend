@@ -179,8 +179,15 @@ public class OutboundService {
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Inventory not found"));
         OutboundRecord record = lockPending(recordId);
         record.cancelPending();
-        order.markAbnormal(OrderAbnormalType.OUTBOUND_CANCELLED,
-                "Outbound record " + record.getRecordNo() + " was cancelled");
+        // Do not overwrite an actual short shipment with the later cancellation of another line.
+        if (order.getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY) {
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY,
+                    order.getExceptionReason() + "; outbound record "
+                            + record.getRecordNo() + " was cancelled");
+        } else {
+            order.markAbnormal(OrderAbnormalType.OUTBOUND_CANCELLED,
+                    "Outbound record " + record.getRecordNo() + " was cancelled");
+        }
         return response(record);
     }
 
