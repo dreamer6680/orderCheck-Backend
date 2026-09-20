@@ -71,8 +71,9 @@ class LegacyDataMigrationTest {
                     .locations("classpath:db/migration")
                     .ignoreMigrationPatterns("*:missing")
                     .load();
-            current.validate();
+            // validate() alone rejects a pending V9 migration; migrate first, then validate.
             current.migrate();
+            current.validate();
 
             try (Connection db = DriverManager.getConnection(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
