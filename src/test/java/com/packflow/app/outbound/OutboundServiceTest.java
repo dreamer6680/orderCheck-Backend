@@ -121,7 +121,19 @@ class OutboundServiceTest extends PostgresIntegrationTest {
         assertThat(inventoryService.inventoryForProduct(first.getId()).physicalQuantity()).isEqualByComparingTo("92.000");
         var stored = orderRepository.findById(order.id()).orElseThrow();
         assertThat(stored.getStatus()).isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(stored.getAbnormalType()).isEqualTo(com.packflow.app.order.OrderAbnormalType.SHORT_DELIVERY);
         assertThat(stored.getExceptionReason()).contains(first.getSku(), "10.000", "8.000", "2 damaged");
+    }
+
+    @Test
+    void shippedShortDeliveryCannotBeRelabeledAsUnableToDeliver() {
+        var order = reserve(item(first, "10.000"));
+        var row = rows(order.id()).getFirst();
+        outboundService.complete(row.getId(), new BigDecimal("8.000"), "damaged", "warehouse");
+
+        conflict(() -> orderService.markUnableToDeliver(order.id(), "Cannot deliver", "sales"));
+        assertThat(orderRepository.findById(order.id()).orElseThrow().getAbnormalType())
+                .isEqualTo(com.packflow.app.order.OrderAbnormalType.SHORT_DELIVERY);
     }
 
     @Test
