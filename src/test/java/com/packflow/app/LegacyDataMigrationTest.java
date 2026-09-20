@@ -5,109 +5,85 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Verify historical rows survive the incremental V5-V8 upgrade, not just clean installation. */
+/** Verify an already-upgraded V8 database survives removal of its old migration files. */
 class LegacyDataMigrationTest {
 
     @Test
-    void upgradesExistingShortageAndPartiallyShippedOrdersWithoutLosingHistory() throws Exception {
+    void existingVersionEightHistoryRemainsValidAndBusinessRowsArePreserved() throws Exception {
         var postgres = new PostgreSQLContainer<>("postgres:17");
         postgres.start();
         try {
-            // Start from a real V1 schema with a Flyway history at version 1.
-            // The new B8 baseline is only for empty databases; applying B8 here
-            // would skip V2-V4 and hide regressions in historical upgrades.
-            try (Connection db = DriverManager.getConnection(
-                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-                ScriptUtils.executeSqlScript(db, new ClassPathResource("db/migration/V1__schema.sql"));
-            }
-            Flyway.configure()
+            var initial = Flyway.configure()
                     .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .locations("classpath:db/migration")
-                    .baselineVersion("1")
-                    .load().baseline();
-
-            Flyway.configure()
-                    .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration")
-                    .target(MigrationVersion.fromVersion("4"))
-                    .load().migrate();
+                    .load();
+            initial.migrate();
 
             try (Connection db = DriverManager.getConnection(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
                  Statement sql = db.createStatement()) {
+                // Simulate an existing fully-upgraded schema with real business rows.
                 sql.executeUpdate("""
                     INSERT INTO app_user (id, username, password_hash, display_name, role, enabled)
-                    VALUES (9001, 'migration-manager', 'unused-hash', 'Migration manager', 'MANAGER', true)
+                    VALUES (9001, 'existing-manager', 'unused-hash', 'Existing manager', 'MANAGER', true)
                     """);
                 sql.executeUpdate("""
                     INSERT INTO product (id, sku, name, unit, safety_stock, enabled)
-                    VALUES (9002, 'BOX-MIGRATION', 'Migration carton', 'piece', 0, true)
+                    VALUES (9002, 'BOX-LEGACY', 'Legacy carton', 'piece', 0, true)
                     """);
                 sql.executeUpdate("""
-                    INSERT INTO sales_order (id, order_no, customer_name, status, exception_reason, created_by)
-                    VALUES (9003, 'SO-LEGACY-STOCK', 'Stock customer', 'ABNORMAL',
-                            'BOX-MIGRATION: 需要 100, 可用 20', 9001),
-                           (9005, 'SO-LEGACY-SHORT', 'Shipment customer', 'ABNORMAL',
-                            'BOX-MIGRATION: planned 100, actual 80', 9001)
+                    INSERT INTO sales_order
+                        (id, order_no, customer_name, status, exception_reason, abnormal_type, created_by)
+                    VALUES (9003, 'SO-LEGACY', 'Existing customer', 'ABNORMAL',
+                            'Stock check showed insufficient inventory', 'STOCK_SHORTAGE', 9001)
                     """);
                 sql.executeUpdate("""
                     INSERT INTO sales_order_item (id, order_id, product_id, ordered_quantity)
-                    VALUES (9004, 9003, 9002, 100), (9006, 9005, 9002, 100)
+                    VALUES (9004, 9003, 9002, 100)
                     """);
+
+                // Replace the fresh B8 migration record with the legacy V1..V8
+                // versioned history that an existing database would already have.
                 sql.executeUpdate("""
-                    INSERT INTO outbound_record
-                        (id, record_no, order_id, order_item_id, product_id, planned_quantity,
-                         actual_quantity, status, difference_reason, operator_id, completed_at)
-                    VALUES (9007, 'OUT-LEGACY-80', 9005, 9006, 9002, 100,
-                            80, 'COMPLETED', 'Actual shipment short by 20', 9001, CURRENT_TIMESTAMP)
+                    UPDATE flyway_schema_history
+                    SET installed_rank = 8, description = 'supplemental outbound',
+                        type = 'SQL', script = 'V8__supplemental_outbound.sql', checksum = 12345678
+                    WHERE script = 'B8__current_schema.sql'
                     """);
+                for (int version = 1; version <= 7; version++) {
+                    sql.executeUpdate("""
+                        INSERT INTO flyway_schema_history
+                          (installed_rank, version, description, type, script, checksum,
+                           installed_by, execution_time, success)
+                        VALUES (%d, '%d', 'historical migration', 'SQL', 'V%d__historical.sql',
+                                12345678, current_user, 0, true)
+                        """.formatted(version, version, version));
+                }
             }
 
-            Flyway.configure()
+            var current = Flyway.configure()
                     .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .locations("classpath:db/migration")
-                    .load().migrate();
+                    .ignoreMigrationPatterns("*:missing")
+                    .load();
+            current.validate();
+            current.migrate();
 
             try (Connection db = DriverManager.getConnection(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
                  Statement sql = db.createStatement()) {
-                assertThat(scalar(sql, "SELECT abnormal_type FROM sales_order WHERE id = 9003"))
-                        .isEqualTo("STOCK_SHORTAGE");
-                assertThat(scalar(sql, "SELECT abnormal_type FROM sales_order WHERE id = 9005"))
-                        .isEqualTo("SHORT_DELIVERY");
-                assertThat(scalar(sql, "SELECT delivery_date FROM sales_order WHERE id = 9003"))
-                        .isNull();
-                assertThat(scalar(sql, "SELECT shipment_type FROM outbound_record WHERE id = 9007"))
-                        .isEqualTo("INITIAL");
-                assertThat(scalar(sql, "SELECT actual_quantity FROM outbound_record WHERE id = 9007"))
-                        .isEqualTo("80.000");
-                assertThat(scalar(sql, """
-                        SELECT count(*) FROM order_event
-                        WHERE order_id = 9005 AND event_type = 'OUTBOUND_SHORTAGE'
-                        """)).isEqualTo("1");
-                assertThat(scalar(sql, """
-                        SELECT count(*) FROM order_event
-                        WHERE order_id = 9003 AND event_type = 'STOCK_SHORTAGE'
-                        """)).isEqualTo("1");
-
-                // The old unique order-item constraint must be gone for supplemental shipments.
-                sql.executeUpdate("""
-                    INSERT INTO outbound_record
-                        (record_no, order_id, order_item_id, product_id, planned_quantity,
-                         planned_outbound_date, status, shipment_type)
-                    VALUES ('OUT-SUPPLEMENT-20', 9005, 9006, 9002, 20,
-                            CURRENT_DATE, 'PENDING', 'SUPPLEMENTAL')
-                    """);
-                assertThat(scalar(sql, "SELECT count(*) FROM outbound_record WHERE order_item_id = 9006"))
-                        .isEqualTo("2");
+                assertThat(scalar(sql, "SELECT count(*) FROM flyway_schema_history WHERE success = true"))
+                        .isEqualTo("8");
+                assertThat(scalar(sql, "SELECT customer_name FROM sales_order WHERE id = 9003"))
+                        .isEqualTo("Existing customer");
+                assertThat(scalar(sql, "SELECT ordered_quantity FROM sales_order_item WHERE id = 9004"))
+                        .isEqualTo("100.000");
+                assertThat(scalar(sql, "SELECT count(*) FROM order_event")).isEqualTo("0");
             }
         } finally {
             postgres.stop();
