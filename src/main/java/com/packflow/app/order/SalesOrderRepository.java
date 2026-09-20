@@ -1,6 +1,7 @@
 package com.packflow.app.order;
 
 import jakarta.persistence.LockModeType;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -10,6 +11,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
+    long countByStatus(OrderStatus status);
+    long countByStatusAndDeliveryDate(OrderStatus status, LocalDate deliveryDate);
+    long countByStatusAndDeliveryDateIsNull(OrderStatus status);
+    long countByStatusIn(List<OrderStatus> statuses);
+    long countByStatusInAndDeliveryDate(List<OrderStatus> statuses, LocalDate deliveryDate);
+    long countByStatusInAndDeliveryDateIsNull(List<OrderStatus> statuses);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from SalesOrder o where o.id = :id")
     Optional<SalesOrder> findByIdForUpdate(@Param("id") Long id);

@@ -6,9 +6,12 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 
 public final class OutboundDtos {
     private OutboundDtos() { }
+
+    public record ScheduleRequest(@NotNull LocalDate plannedOutboundDate) { }
 
     public record CompleteRequest(
             @NotNull @DecimalMin(value = "0", inclusive = false) @Digits(integer = 15, fraction = 3)
@@ -53,5 +56,8 @@ public final class OutboundDtos {
             String operatorUsername,
             OffsetDateTime completedAt,
             OffsetDateTime createdAt,
-            OffsetDateTime updatedAt) { }
+            OffsetDateTime updatedAt,
+            LocalDate plannedOutboundDate,
+            LocalDate deliveryDate,
+            ShipmentType shipmentType) { }
 }

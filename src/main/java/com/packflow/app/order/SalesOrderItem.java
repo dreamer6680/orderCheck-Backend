@@ -26,6 +26,8 @@ public class SalesOrderItem {
     private Product product;
     @Column(name = "ordered_quantity", nullable = false, precision = 18, scale = 3)
     private BigDecimal orderedQuantity;
+    @Column(name = "waived_quantity", nullable = false, precision = 18, scale = 3)
+    private BigDecimal waivedQuantity = BigDecimal.ZERO;
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -37,6 +39,15 @@ public class SalesOrderItem {
         this.orderedQuantity = orderedQuantity;
     }
 
+    public void waive(BigDecimal quantity) {
+        if (quantity == null || quantity.signum() < 0
+                || waivedQuantity.add(quantity).compareTo(orderedQuantity) > 0) {
+            throw new IllegalArgumentException("Invalid waived quantity");
+        }
+        waivedQuantity = waivedQuantity.add(quantity);
+    }
+
+    public BigDecimal getWaivedQuantity() { return waivedQuantity; }
     public Long getId() { return id; }
     public SalesOrder getOrder() { return order; }
     public Product getProduct() { return product; }

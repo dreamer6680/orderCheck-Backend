@@ -2,6 +2,7 @@ package com.packflow.app.outbound;
 
 import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface OutboundRecordRepository extends JpaRepository<OutboundRecord, Long> {
     long countByStatus(OutboundStatus status);
+    long countByStatusAndPlannedOutboundDate(OutboundStatus status, LocalDate plannedOutboundDate);
     long countByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
             OutboundStatus status, OffsetDateTime start, OffsetDateTime end);
     long countByStatusAndDifferenceReasonIsNotNull(OutboundStatus status);

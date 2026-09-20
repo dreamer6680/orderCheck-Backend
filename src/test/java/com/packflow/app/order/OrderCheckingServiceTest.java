@@ -1,6 +1,7 @@
 package com.packflow.app.order;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.packflow.app.dashboard.WarehouseProgressService;
 import com.packflow.app.inventory.InventoryRepository;
 import com.packflow.app.inventory.InventoryService;
 import com.packflow.app.outbound.OutboundRecordRepository;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -43,6 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class OrderCheckingServiceTest extends PostgresIntegrationTest {
     @Autowired private OrderService orderService;
+    @Autowired private WarehouseProgressService warehouseProgress;
     @Autowired private SalesOrderRepository orderRepository;
     @MockitoSpyBean private OutboundRecordRepository outboundRepository;
     @Autowired private ProductRepository productRepository;
@@ -77,6 +80,54 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         assertThat(order.items()).hasSize(2);
         assertThat(order.createdBy()).isEqualTo("sales");
         assertThat(orderService.getOrder(order.id(), "warehouse").items()).hasSize(2);
+    }
+
+    @Test
+    @WithMockUser(username = "sales", roles = "SALES")
+    void createAndUpdateDeliveryDatePersistsActualCustomerPromise() throws Exception {
+        var order = create(item(first, "10"));
+        var date = order.deliveryDate().plusDays(2);
+        assertThat(orderRepository.findById(order.id()).orElseThrow().getDeliveryDate())
+                .isEqualTo(order.deliveryDate());
+
+        mvc.perform(patch("/api/orders/{id}/delivery-date", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryDate\":\"" + date + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deliveryDate").value(date.toString()));
+
+        assertThat(orderService.getOrder(order.id(), "sales").deliveryDate()).isEqualTo(date);
+        mvc.perform(patch("/api/orders/{id}/delivery-date", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dueTodayIncludesUnshippedOrderBeforeAndAfterInventoryCheck() {
+        var before = warehouseProgress.today();
+        var requested = orderService.createOrder(new OrderDtos.CreateOrderRequest(
+                "Due today", before.businessDate(), List.of(item(first, "10"))), "sales");
+
+        var unchecked = warehouseProgress.today();
+        assertThat(requested.status()).isEqualTo(OrderStatus.PENDING_CHECK);
+        assertThat(unchecked.todayDueUnfulfilledOrderCount())
+                .isEqualTo(before.todayDueUnfulfilledOrderCount() + 1);
+        assertThat(unchecked.unfulfilledOrderCount()).isEqualTo(before.unfulfilledOrderCount() + 1);
+
+        orderService.checkInventory(requested.id(), "sales");
+        var checked = warehouseProgress.today();
+        assertThat(checked.todayDueUnfulfilledOrderCount())
+                .isEqualTo(unchecked.todayDueUnfulfilledOrderCount());
+        assertThat(checked.pendingOutboundOrderCount())
+                .isEqualTo(before.pendingOutboundOrderCount() + 1);
+
+        var abnormal = orderService.createOrder(new OrderDtos.CreateOrderRequest(
+                "Due today short stock", before.businessDate(), List.of(item(first, "999"))), "sales");
+        assertThat(orderService.checkInventory(abnormal.id(), "sales").status())
+                .isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(warehouseProgress.today().todayDueUnfulfilledOrderCount())
+                .isEqualTo(checked.todayDueUnfulfilledOrderCount() + 1);
     }
 
     @Test
@@ -115,10 +166,45 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         var order = create(item(second, "20"), item(first, "100"));
         var checked = orderService.checkInventory(order.id(), "sales");
         assertThat(checked.status()).isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(checked.abnormalType()).isEqualTo(OrderAbnormalType.STOCK_SHORTAGE);
         assertThat(checked.exceptionReason()).isEqualTo(first.getSku() + ": 需要 100.000，可用 70.000");
         assertThat(orderService.getOrder(order.id(), "sales").status()).isEqualTo(OrderStatus.ABNORMAL);
         assertThat(outboundRepository.findByOrderId(order.id())).isEmpty();
         conflict(() -> orderService.checkInventory(order.id(), "sales"));
+    }
+
+    @Test
+    @WithMockUser(username = "sales", roles = "SALES")
+    void confirmedUnableToDeliverIsPersistedAndCannotBeRechecked() throws Exception {
+        var order = create(item(first, "120"));
+        assertThat(orderService.checkInventory(order.id(), "sales").abnormalType())
+                .isEqualTo(OrderAbnormalType.STOCK_SHORTAGE);
+
+        mvc.perform(post("/api/orders/{id}/unable-to-deliver", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Supplier cannot deliver\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.abnormalType").value("UNABLE_TO_DELIVER"));
+
+        var confirmed = orderRepository.findById(order.id()).orElseThrow();
+        assertThat(confirmed.getExceptionReason()).isEqualTo("Supplier cannot deliver");
+        assertThat(confirmed.getAbnormalType()).isEqualTo(OrderAbnormalType.UNABLE_TO_DELIVER);
+        conflict(() -> orderService.recheckInventory(order.id(), "sales"));
+        assertThat(outboundRepository.findByOrderId(order.id())).isEmpty();
+    }
+
+    @Test
+    void markingUnableToDeliverCancelsPendingReservationsButNeverDeletesShipments() {
+        var pending = create(item(first, "10"));
+        orderService.checkInventory(pending.id(), "sales");
+        assertThat(inventoryService.inventoryForProduct(first.getId()).pendingQuantity())
+                .isEqualByComparingTo("10");
+        var blocked = orderService.markUnableToDeliver(pending.id(), "Customer cannot accept delivery", "manager");
+        assertThat(blocked.abnormalType()).isEqualTo(OrderAbnormalType.UNABLE_TO_DELIVER);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).pendingQuantity())
+                .isEqualByComparingTo("0");
+        assertThat(outboundRepository.findByOrderId(pending.id())).allMatch(
+                record -> record.getStatus() == OutboundStatus.CANCELLED);
     }
 
     @Test
@@ -167,7 +253,7 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         orderService.checkInventory(order.id(), "sales");
         var row = outboundRepository.findByOrderId(order.id()).getFirst();
         jdbc.update("update outbound_record set status = 'COMPLETED', actual_quantity = 10 where id = ?", row.getId());
-        jdbc.update("update sales_order set status = 'ABNORMAL' where id = ?", order.id());
+        jdbc.update("update sales_order set status = 'ABNORMAL', abnormal_type = 'SHORT_DELIVERY' where id = ?", order.id());
         conflict(() -> orderService.cancelOrder(order.id(), "sales"));
         conflict(() -> orderService.recheckInventory(order.id(), "sales"));
         assertThat(outboundRepository.findByOrderId(order.id())).hasSize(2);
@@ -311,7 +397,7 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
     }
 
     private OrderDtos.CreateOrderRequest command(OrderDtos.ItemRequest... items) {
-        return new OrderDtos.CreateOrderRequest("Customer", List.of(items));
+        return new OrderDtos.CreateOrderRequest("Customer", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(1), List.of(items));
     }
 
     private OrderDtos.OrderResponse create(OrderDtos.ItemRequest... items) {

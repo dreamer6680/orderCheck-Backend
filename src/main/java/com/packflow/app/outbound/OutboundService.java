@@ -3,16 +3,25 @@ package com.packflow.app.outbound;
 import com.packflow.app.inventory.Inventory;
 import com.packflow.app.inventory.InventoryRepository;
 import com.packflow.app.order.OrderStatus;
+import com.packflow.app.order.OrderAbnormalType;
 import com.packflow.app.order.SalesOrder;
 import com.packflow.app.order.SalesOrderRepository;
+import com.packflow.app.order.SalesOrderItem;
+import com.packflow.app.order.SalesOrderItemRepository;
+import com.packflow.app.order.Fulfillment;
+import com.packflow.app.order.OrderEvent;
+import com.packflow.app.order.OrderEventRepository;
+import com.packflow.app.order.OrderEventType;
 import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
 import com.packflow.app.outbound.OutboundDtos.OutboundCheckResponse;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
 import com.packflow.app.user.AppUser;
 import com.packflow.app.user.AppUserRepository;
 import com.packflow.app.user.Role;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Comparator;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,13 +33,18 @@ public class OutboundService {
     private final SalesOrderRepository orders;
     private final InventoryRepository inventories;
     private final AppUserRepository users;
+    private final SalesOrderItemRepository items;
+    private final OrderEventRepository events;
 
     public OutboundService(OutboundRecordRepository outbounds, SalesOrderRepository orders,
-            InventoryRepository inventories, AppUserRepository users) {
+            InventoryRepository inventories, AppUserRepository users,
+            SalesOrderItemRepository items, OrderEventRepository events) {
         this.outbounds = outbounds;
         this.orders = orders;
         this.inventories = inventories;
         this.users = users;
+        this.items = items;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -39,9 +53,20 @@ public class OutboundService {
         List<OutboundRecord> records = status == null
                 ? outbounds.findAllByOrderByCreatedAtDescIdDesc()
                 : outbounds.findByStatusOrderByCreatedAtDescIdDesc(status);
-        return records.stream().map(this::response).toList();
+        return records.stream().map(this::response)
+                .sorted(Comparator.comparing(OutboundResponse::deliveryDate,
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(OutboundResponse::id))
+                .toList();
     }
 
+
+    @Transactional(readOnly = true)
+    public List<OutboundResponse> list(OutboundStatus status, LocalDate deliveryDate, String username) {
+        return list(status, username).stream()
+                .filter(record -> deliveryDate == null || deliveryDate.equals(record.deliveryDate()))
+                .toList();
+    }
 
     @Transactional(readOnly = true)
     public OutboundResponse detail(Long recordId, String username) {
@@ -71,7 +96,8 @@ public class OutboundService {
         if (record.getStatus() != OutboundStatus.PENDING) {
             reason = "Outbound record is no longer pending";
         } else if (record.getOrder().getStatus() != OrderStatus.PENDING_OUTBOUND
-                && record.getOrder().getStatus() != OrderStatus.ABNORMAL) {
+                && !(record.getOrder().getStatus() == OrderStatus.ABNORMAL
+                     && record.getOrder().getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY)) {
             reason = "Order state does not allow outbound";
         } else if (physical.compareTo(record.getPlannedQuantity()) < 0) {
             reason = "Insufficient physical inventory";
@@ -107,7 +133,9 @@ public class OutboundService {
         if (actualQuantity.compareTo(record.getPlannedQuantity()) > 0) {
             throw error(HttpStatus.BAD_REQUEST, "Actual quantity cannot exceed planned quantity");
         }
-        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND && order.getStatus() != OrderStatus.ABNORMAL) {
+        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND
+                && !(order.getStatus() == OrderStatus.ABNORMAL
+                     && order.getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY)) {
             throw error(HttpStatus.CONFLICT, "Order state does not allow outbound");
         }
         // Preserve physical stock reserved for other pending tasks, under the inventory row lock.
@@ -132,12 +160,31 @@ public class OutboundService {
         }
 
         if (differs) {
-            order.markAbnormal("SKU " + record.getProduct().getSku() + ": planned "
+            String description = "SKU " + record.getProduct().getSku() + ": planned "
                     + quantity(record.getPlannedQuantity()) + ", actual " + quantity(actualQuantity)
-                    + ", reason: " + reason);
+                    + ", short " + quantity(record.getPlannedQuantity().subtract(actualQuantity))
+                    + ", reason: " + reason;
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY, description);
+            events.save(new OrderEvent(order, OrderEventType.OUTBOUND_SHORTAGE,
+                    description, operator.getUsername()));
         } else {
-            finishOrderWhenAllLinesComplete(order);
+            events.save(new OrderEvent(order, OrderEventType.SHIPMENT_COMPLETED,
+                    (record.getShipmentType() == ShipmentType.SUPPLEMENTAL
+                            ? "Supplemental shipment " : "Shipment ")
+                            + record.getRecordNo() + ": " + quantity(actualQuantity)
+                            + " " + record.getProduct().getUnit(),
+                    operator.getUsername()));
         }
+        finishOrderWhenAllLinesComplete(order);
+        return response(record);
+    }
+
+    @Transactional
+    public OutboundResponse reschedule(Long recordId, LocalDate plannedDate, String username) {
+        requireOperator(username);
+        if (plannedDate == null) throw error(HttpStatus.BAD_REQUEST, "Planned outbound date is required");
+        OutboundRecord record = lockPending(recordId);
+        record.reschedule(plannedDate);
         return response(record);
     }
 
@@ -152,21 +199,46 @@ public class OutboundService {
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Inventory not found"));
         OutboundRecord record = lockPending(recordId);
         record.cancelPending();
-        order.markAbnormal("Outbound record " + record.getRecordNo() + " was cancelled");
+        events.save(new OrderEvent(order, OrderEventType.SHIPMENT_CANCELLED,
+                "Outbound task " + record.getRecordNo() + " was cancelled", username));
+        // Do not overwrite an actual short shipment with the later cancellation of another line.
+        if (order.getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY) {
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY,
+                    order.getExceptionReason() + "; outbound record "
+                            + record.getRecordNo() + " was cancelled");
+        } else {
+            order.markAbnormal(OrderAbnormalType.OUTBOUND_CANCELLED,
+                    "Outbound record " + record.getRecordNo() + " was cancelled");
+        }
         return response(record);
     }
 
     private void finishOrderWhenAllLinesComplete(SalesOrder order) {
         List<OutboundRecord> records = outbounds.findByOrderId(order.getId());
-        if (records.stream().allMatch(record -> record.getStatus() == OutboundStatus.COMPLETED)) {
-            if (records.stream().anyMatch(record -> record.getActualQuantity()
-                    .compareTo(record.getPlannedQuantity()) != 0)) {
-                if (order.getStatus() != OrderStatus.ABNORMAL) {
-                    order.markAbnormal("One or more outbound quantities differ from the order");
-                }
-            } else {
+        if (records.stream().anyMatch(record -> record.getStatus() == OutboundStatus.PENDING)) {
+            return;
+        }
+        List<SalesOrderItem> lines = items.findByOrderIdOrderByProductIdAsc(order.getId());
+        boolean outstanding = lines.stream()
+                .anyMatch(item -> Fulfillment.remaining(item, records).signum() > 0);
+        if (!outstanding) {
+            if (order.getStatus() != OrderStatus.COMPLETED) {
                 order.markCompleted();
+                events.save(new OrderEvent(order, OrderEventType.FULFILLMENT_COMPLETED,
+                        "Order fulfillment completed; all ordered quantities were shipped or accepted by customer",
+                        null));
             }
+            return;
+        }
+        if (records.stream().anyMatch(record -> record.getStatus() == OutboundStatus.COMPLETED)
+                && order.getAbnormalType() != OrderAbnormalType.SHORT_DELIVERY) {
+            String outstandingDetail = lines.stream()
+                    .filter(item -> Fulfillment.remaining(item, records).signum() > 0)
+                    .map(item -> item.getProduct().getSku() + ": remaining "
+                            + quantity(Fulfillment.remaining(item, records)))
+                    .reduce((left, right) -> left + "; " + right)
+                    .orElse("Unfulfilled order quantities");
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY, outstandingDetail);
         }
     }
 
@@ -207,7 +279,9 @@ public class OutboundService {
                 record.getProduct().getSku(), record.getProduct().getName(), record.getProduct().getUnit(),
                 record.getPlannedQuantity(), record.getActualQuantity(), record.getStatus(),
                 record.getDifferenceReason(), record.getOperator() == null ? null : record.getOperator().getUsername(),
-                record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt());
+                record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt(),
+                record.getPlannedOutboundDate(), record.getOrder().getDeliveryDate(),
+                record.getShipmentType());
     }
 
     private String normalize(String value) {

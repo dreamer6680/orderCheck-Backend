@@ -120,8 +120,8 @@ class InventoryIntegrityTest extends PostgresIntegrationTest {
                 "INSERT INTO sales_order_item (order_id, product_id, ordered_quantity) VALUES (?, ?, ?) RETURNING id",
                 Long.class, orderId, product.getId(), new BigDecimal("4.250"));
         jdbcTemplate.update("INSERT INTO outbound_record "
-                        + "(record_no, order_id, order_item_id, product_id, planned_quantity, status) "
-                        + "VALUES (?, ?, ?, ?, ?, 'PENDING')",
+                        + "(record_no, order_id, order_item_id, product_id, planned_quantity, planned_outbound_date, status) "
+                        + "VALUES (?, ?, ?, ?, ?, CURRENT_DATE, 'PENDING')",
                 "OUT-" + System.nanoTime(), orderId, orderItemId, product.getId(), new BigDecimal("4.250"));
 
         InventoryService.InventoryProjection projection = inventoryService.inventoryForProduct(product.getId());
