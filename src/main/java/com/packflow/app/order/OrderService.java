@@ -8,6 +8,7 @@ import com.packflow.app.order.OrderDtos.OrderResponse;
 import com.packflow.app.outbound.OutboundRecord;
 import com.packflow.app.outbound.OutboundRecordRepository;
 import com.packflow.app.outbound.OutboundStatus;
+import com.packflow.app.outbound.ShipmentType;
 import com.packflow.app.product.Product;
 import com.packflow.app.product.ProductRepository;
 import com.packflow.app.user.AppUser;
@@ -41,11 +42,13 @@ public class OrderService {
     private final OutboundRecordRepository outbounds;
     private final AppUserRepository users;
     private final Validator validator;
+    private final OrderEventRepository events;
     private final ZoneId warehouseZone;
 
     public OrderService(SalesOrderRepository orders, SalesOrderItemRepository items, ProductRepository products,
             InventoryRepository inventories, OutboundRecordRepository outbounds, AppUserRepository users,
-            Validator validator, @Value("${app.warehouse.time-zone}") String warehouseTimeZone) {
+            Validator validator, OrderEventRepository events,
+            @Value("${app.warehouse.time-zone}") String warehouseTimeZone) {
         this.orders = orders;
         this.items = items;
         this.products = products;
@@ -53,6 +56,7 @@ public class OrderService {
         this.outbounds = outbounds;
         this.users = users;
         this.validator = validator;
+        this.events = events;
         this.warehouseZone = ZoneId.of(warehouseTimeZone);
     }
 
@@ -146,6 +150,7 @@ public class OrderService {
             records.forEach(OutboundRecord::cancelPending);
         }
         order.markAbnormal(OrderAbnormalType.UNABLE_TO_DELIVER, reason.trim());
+        event(order, OrderEventType.UNABLE_TO_DELIVER, reason.trim(), username);
         return response(order);
     }
 
@@ -185,6 +190,8 @@ public class OrderService {
         }
         if (!shortages.isEmpty()) {
             order.markAbnormal(OrderAbnormalType.STOCK_SHORTAGE, String.join("; ", shortages));
+            event(order, OrderEventType.STOCK_SHORTAGE, String.join("; ", shortages),
+                    order.getCreatedBy().getUsername());
         } else {
             LocalDate plannedDate = order.getDeliveryDate() == null
                     ? LocalDate.now(warehouseZone) : order.getDeliveryDate();
@@ -221,12 +228,24 @@ public class OrderService {
         if (order.getStatus() != expected) throw error(HttpStatus.CONFLICT, "Order state does not allow this operation");
     }
 
+    private void event(SalesOrder order, OrderEventType type, String message, String actor) {
+        events.save(new OrderEvent(order, type, message, actor));
+    }
+
     private OrderResponse response(SalesOrder order) {
+        List<OutboundRecord> records = outbounds.findByOrderId(order.getId());
         List<ItemResponse> details = items.findByOrderIdOrderByProductIdAsc(order.getId()).stream()
                 .map(item -> new ItemResponse(item.getId(), item.getProduct().getId(), item.getProduct().getSku(),
-                        item.getProduct().getName(), item.getProduct().getUnit(), item.getOrderedQuantity())).toList();
+                        item.getProduct().getName(), item.getProduct().getUnit(), item.getOrderedQuantity(),
+                        Fulfillment.shipped(item, records), Fulfillment.pending(item, records),
+                        item.getWaivedQuantity(), Fulfillment.remaining(item, records))).toList();
+        List<OrderDtos.OrderEventResponse> history = events.findByOrderIdOrderByCreatedAtAscIdAsc(order.getId())
+                .stream().map(entry -> new OrderDtos.OrderEventResponse(entry.getId(), entry.getEventType(),
+                        entry.getDescription(), entry.getOperatorUsername(), entry.getCreatedAt())).toList();
         return new OrderResponse(order.getId(), order.getOrderNo(), order.getCustomerName(), order.getStatus(),
-                order.getDeliveryDate(), order.getExceptionReason(), order.getAbnormalType(), order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(), details);
+                order.getDeliveryDate(), order.getExceptionReason(), order.getAbnormalType(),
+                order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(),
+                details, history);
     }
 
     private String nextNumber(String prefix) { return prefix + "-" + UUID.randomUUID().toString().replace("-", ""); }
