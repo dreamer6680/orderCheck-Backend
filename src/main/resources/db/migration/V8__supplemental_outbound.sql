@@ -33,3 +33,31 @@ CREATE TABLE order_event (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_order_event_order_time ON order_event (order_id, created_at, id);
+
+-- Backfill factual shipment history for orders created before event logging existed.
+INSERT INTO order_event (order_id, event_type, description, operator_username, created_at)
+SELECT r.order_id,
+       CASE WHEN r.actual_quantity < r.planned_quantity
+            THEN 'OUTBOUND_SHORTAGE' ELSE 'SHIPMENT_COMPLETED' END,
+       concat('Historical shipment ', r.record_no,
+              ': planned ', r.planned_quantity, ', actually shipped ', r.actual_quantity,
+              CASE WHEN r.actual_quantity < r.planned_quantity
+                   THEN concat(', short ', r.planned_quantity - r.actual_quantity) ELSE '' END,
+              CASE WHEN r.difference_reason IS NOT NULL
+                   THEN concat('; original reason: ', r.difference_reason) ELSE '' END),
+       u.username,
+       COALESCE(r.completed_at, r.updated_at)
+FROM outbound_record r
+LEFT JOIN app_user u ON u.id = r.operator_id
+WHERE r.status = 'COMPLETED' AND r.actual_quantity IS NOT NULL;
+
+INSERT INTO order_event (order_id, event_type, description, operator_username, created_at)
+SELECT o.id, 'STOCK_SHORTAGE', concat('Historical inventory check: ', o.exception_reason),
+       creator.username, o.updated_at
+FROM sales_order o
+JOIN app_user creator ON creator.id = o.created_by
+WHERE o.status = 'ABNORMAL' AND o.abnormal_type = 'STOCK_SHORTAGE'
+      AND o.exception_reason IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM outbound_record r WHERE r.order_id = o.id AND r.status = 'COMPLETED'
+      );
