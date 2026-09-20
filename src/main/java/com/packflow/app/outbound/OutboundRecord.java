@@ -30,10 +30,12 @@ public class OutboundRecord {
     private String recordNo;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "order_id", nullable = false)
     private SalesOrder order;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "order_item_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "order_item_id", nullable = false)
     private SalesOrderItem orderItem;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "product_id", nullable = false)
     private Product product;
+    @Enumerated(EnumType.STRING) @Column(name = "shipment_type", nullable = false, length = 20)
+    private ShipmentType shipmentType = ShipmentType.INITIAL;
     @Column(name = "planned_outbound_date", nullable = false)
     private LocalDate plannedOutboundDate;
     @Column(name = "planned_quantity", nullable = false, precision = 18, scale = 3)
@@ -65,6 +67,19 @@ public class OutboundRecord {
         this.plannedQuantity = item.getOrderedQuantity();
         this.status = OutboundStatus.PENDING;
     }
+
+    public OutboundRecord(String recordNo, SalesOrderItem item, LocalDate plannedOutboundDate,
+            BigDecimal plannedQuantity, ShipmentType shipmentType) {
+        this(recordNo, item, plannedOutboundDate);
+        if (plannedQuantity == null || plannedQuantity.signum() <= 0
+                || plannedQuantity.compareTo(item.getOrderedQuantity()) > 0 || shipmentType == null) {
+            throw new IllegalArgumentException("Invalid shipment quantity or type");
+        }
+        this.plannedQuantity = plannedQuantity;
+        this.shipmentType = shipmentType;
+    }
+
+    public ShipmentType getShipmentType() { return shipmentType; }
 
     public void reschedule(LocalDate date) {
         if (status != OutboundStatus.PENDING) throw new IllegalStateException("Only pending tasks can be rescheduled");
