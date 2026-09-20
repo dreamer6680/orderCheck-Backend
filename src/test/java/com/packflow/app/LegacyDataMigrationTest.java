@@ -8,6 +8,8 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,6 +21,19 @@ class LegacyDataMigrationTest {
         var postgres = new PostgreSQLContainer<>("postgres:17");
         postgres.start();
         try {
+            // Start from a real V1 schema with a Flyway history at version 1.
+            // The new B8 baseline is only for empty databases; applying B8 here
+            // would skip V2-V4 and hide regressions in historical upgrades.
+            try (Connection db = DriverManager.getConnection(
+                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                ScriptUtils.executeSqlScript(db, new ClassPathResource("db/migration/V1__schema.sql"));
+            }
+            Flyway.configure()
+                    .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                    .locations("classpath:db/migration")
+                    .baselineVersion("1")
+                    .load().baseline();
+
             Flyway.configure()
                     .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .locations("classpath:db/migration")
