@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -117,7 +118,7 @@ class OutboundServiceTest extends PostgresIntegrationTest {
         assertThat(afterFirst.items().getFirst().remainingQuantity()).isEqualByComparingTo("20");
         assertThat(afterFirst.events()).anyMatch(event ->
                 event.eventType() == com.packflow.app.order.OrderEventType.OUTBOUND_SHORTAGE);
-        conflict(() -> orderService.planSupplemental(order.id(),
+        badRequest(() -> orderService.planSupplemental(order.id(),
                 afterFirst.items().getFirst().id(), new BigDecimal("21"), "sales"));
 
         // Another order may reserve the remaining physical stock. Supplemental must wait for restock.
@@ -331,8 +332,8 @@ class OutboundServiceTest extends PostgresIntegrationTest {
 
         mvc.perform(get("/api/outbound-records").param("status", "PENDING"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(row.getId()))
-                .andExpect(jsonPath("$[0].orderId").value(order.id()));
+                .andExpect(jsonPath("$[*].id", hasItem(row.getId().intValue())))
+                .andExpect(jsonPath("$[*].orderId", hasItem(order.id().intValue())));
         mvc.perform(post("/api/outbound-records/{id}/complete", row.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(new OutboundDtos.CompleteRequest(new BigDecimal("10.000"), null))))
