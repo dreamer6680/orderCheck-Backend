@@ -130,6 +130,124 @@ public class OrderService {
         return reserve(order);
     }
 
+    /**
+     * Explicit customer approval is required; ordinary inventory checks do not silently
+     * turn a shortage into a partial delivery.
+     */
+    @Transactional
+    public OrderResponse planPartialOutbound(Long orderId, boolean customerAgreed, String username) {
+        requireUser(username, true);
+        if (!customerAgreed) throw error(HttpStatus.BAD_REQUEST, "Customer approval is required");
+        SalesOrder order = lockOrder(orderId);
+        boolean eligible = order.getStatus() == OrderStatus.PENDING_CHECK
+                || (order.getStatus() == OrderStatus.ABNORMAL
+                    && order.getAbnormalType() == OrderAbnormalType.STOCK_SHORTAGE);
+        if (!eligible || outbounds.existsByOrderId(orderId)) {
+            throw error(HttpStatus.CONFLICT, "Order cannot be planned for a partial first shipment");
+        }
+        List<SalesOrderItem> lines = items.findByOrderIdOrderByProductIdAsc(orderId);
+        Map<Long, Inventory> stock = lockInventories(lines);
+        LocalDate plannedDate = order.getDeliveryDate() == null
+                ? LocalDate.now(warehouseZone) : order.getDeliveryDate();
+        var summary = new ArrayList<String>();
+        for (SalesOrderItem item : lines) {
+            BigDecimal reserved = inventories.pendingOutboundQuantity(item.getProduct().getId());
+            BigDecimal available = stock.get(item.getProduct().getId()).getQuantity()
+                    .subtract(reserved == null ? BigDecimal.ZERO : reserved).max(BigDecimal.ZERO);
+            BigDecimal firstQuantity = item.getOrderedQuantity().min(available);
+            if (firstQuantity.signum() > 0) {
+                outbounds.save(new OutboundRecord(nextNumber("OUT"), item, plannedDate,
+                        firstQuantity, ShipmentType.INITIAL));
+                summary.add(item.getProduct().getSku() + ": planned " + quantity(firstQuantity)
+                        + " / ordered " + quantity(item.getOrderedQuantity()));
+            }
+        }
+        if (summary.isEmpty()) throw error(HttpStatus.CONFLICT, "No inventory available for a partial shipment");
+        order.markPendingOutbound();
+        event(order, OrderEventType.PARTIAL_SHIPMENT_PLANNED,
+                "Customer agreed to staged delivery; " + String.join("; ", summary), username);
+        return response(order);
+    }
+
+    @Transactional
+    public OrderResponse planSupplemental(Long orderId, Long itemId, BigDecimal requestedQuantity,
+            String username) {
+        requireUser(username, true);
+        SalesOrder order = lockOrder(orderId);
+        if (order.getStatus() != OrderStatus.ABNORMAL
+                || (order.getAbnormalType() != OrderAbnormalType.SHORT_DELIVERY
+                    && order.getAbnormalType() != OrderAbnormalType.OUTBOUND_CANCELLED)) {
+            throw error(HttpStatus.CONFLICT, "Order is not eligible for a supplemental shipment");
+        }
+        SalesOrderItem item = items.findById(itemId)
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Order line not found"));
+        if (!item.getOrder().getId().equals(orderId)) {
+            throw error(HttpStatus.BAD_REQUEST, "Order line does not belong to this order");
+        }
+        // Serialize all reservations for a product under the same inventory row lock.
+        Inventory stock = inventories.findByProductIdForUpdate(item.getProduct().getId())
+                .orElseThrow(() -> error(HttpStatus.CONFLICT, "Inventory not found"));
+        List<OutboundRecord> records = outbounds.findByOrderId(orderId);
+        BigDecimal unplanned = Fulfillment.unplanned(item, records);
+        if (unplanned.signum() <= 0) throw error(HttpStatus.CONFLICT, "No unplanned remainder to ship");
+        BigDecimal quantity = requestedQuantity == null ? unplanned : requestedQuantity;
+        if (quantity.signum() <= 0 || quantity.scale() > 3 || quantity.compareTo(unplanned) > 0) {
+            throw error(HttpStatus.BAD_REQUEST, "Supplemental quantity exceeds the unplanned remainder");
+        }
+        BigDecimal reserved = inventories.pendingOutboundQuantity(item.getProduct().getId());
+        BigDecimal available = stock.getQuantity()
+                .subtract(reserved == null ? BigDecimal.ZERO : reserved);
+        if (available.compareTo(quantity) < 0) {
+            throw error(HttpStatus.CONFLICT, "Insufficient available inventory for supplemental shipment");
+        }
+        LocalDate plannedDate = order.getDeliveryDate() == null
+                ? LocalDate.now(warehouseZone) : order.getDeliveryDate();
+        outbounds.save(new OutboundRecord(nextNumber("OUT"), item, plannedDate,
+                quantity, ShipmentType.SUPPLEMENTAL));
+        if (order.getAbnormalType() == OrderAbnormalType.OUTBOUND_CANCELLED) {
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY, order.getExceptionReason());
+        }
+        event(order, OrderEventType.SUPPLEMENTAL_PLANNED,
+                "Supplemental task created for " + item.getProduct().getSku()
+                        + ": " + quantity(quantity) + " " + item.getProduct().getUnit(), username);
+        return response(order);
+    }
+
+    @Transactional
+    public OrderResponse acceptShortDelivery(Long orderId, String reason, String username) {
+        requireUser(username, true);
+        if (reason == null || reason.isBlank() || reason.trim().length() > 500) {
+            throw error(HttpStatus.BAD_REQUEST, "Customer acceptance reason is required (max 500 characters)");
+        }
+        SalesOrder order = lockOrder(orderId);
+        if (order.getStatus() != OrderStatus.ABNORMAL
+                || order.getAbnormalType() != OrderAbnormalType.SHORT_DELIVERY) {
+            throw error(HttpStatus.CONFLICT, "Only orders with a partial shipment may accept a short delivery");
+        }
+        List<OutboundRecord> records = outbounds.findByOrderId(orderId);
+        if (records.stream().anyMatch(record -> record.getStatus() == OutboundStatus.PENDING)) {
+            throw error(HttpStatus.CONFLICT, "Finish or cancel pending outbound tasks first");
+        }
+        List<SalesOrderItem> lines = items.findByOrderIdOrderByProductIdAsc(orderId);
+        if (records.stream().noneMatch(record -> record.getStatus() == OutboundStatus.COMPLETED)) {
+            throw error(HttpStatus.CONFLICT, "Nothing has been shipped");
+        }
+        var summary = new ArrayList<String>();
+        for (SalesOrderItem item : lines) {
+            BigDecimal remainder = Fulfillment.remaining(item, records);
+            if (remainder.signum() > 0) {
+                item.waive(remainder);
+                summary.add(item.getProduct().getSku() + ": " + quantity(remainder));
+            }
+        }
+        if (summary.isEmpty()) throw error(HttpStatus.CONFLICT, "There is no remaining quantity");
+        event(order, OrderEventType.CUSTOMER_ACCEPTED_SHORTAGE,
+                "Customer accepted no further shipment: " + String.join("; ", summary)
+                        + ". Reason: " + reason.trim(), username);
+        order.markCompleted();
+        return response(order);
+    }
+
     @Transactional
     public OrderResponse markUnableToDeliver(Long orderId, String reason, String username) {
         requireUser(username, true);
