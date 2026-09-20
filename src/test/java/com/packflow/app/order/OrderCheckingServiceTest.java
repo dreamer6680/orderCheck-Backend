@@ -166,10 +166,45 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         var order = create(item(second, "20"), item(first, "100"));
         var checked = orderService.checkInventory(order.id(), "sales");
         assertThat(checked.status()).isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(checked.abnormalType()).isEqualTo(OrderAbnormalType.STOCK_SHORTAGE);
         assertThat(checked.exceptionReason()).isEqualTo(first.getSku() + ": 需要 100.000，可用 70.000");
         assertThat(orderService.getOrder(order.id(), "sales").status()).isEqualTo(OrderStatus.ABNORMAL);
         assertThat(outboundRepository.findByOrderId(order.id())).isEmpty();
         conflict(() -> orderService.checkInventory(order.id(), "sales"));
+    }
+
+    @Test
+    @WithMockUser(username = "sales", roles = "SALES")
+    void confirmedUnableToDeliverIsPersistedAndCannotBeRechecked() throws Exception {
+        var order = create(item(first, "120"));
+        assertThat(orderService.checkInventory(order.id(), "sales").abnormalType())
+                .isEqualTo(OrderAbnormalType.STOCK_SHORTAGE);
+
+        mvc.perform(post("/api/orders/{id}/unable-to-deliver", order.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Supplier cannot deliver\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.abnormalType").value("UNABLE_TO_DELIVER"));
+
+        var confirmed = orderRepository.findById(order.id()).orElseThrow();
+        assertThat(confirmed.getExceptionReason()).isEqualTo("Supplier cannot deliver");
+        assertThat(confirmed.getAbnormalType()).isEqualTo(OrderAbnormalType.UNABLE_TO_DELIVER);
+        conflict(() -> orderService.recheckInventory(order.id(), "sales"));
+        assertThat(outboundRepository.findByOrderId(order.id())).isEmpty();
+    }
+
+    @Test
+    void markingUnableToDeliverCancelsPendingReservationsButNeverDeletesShipments() {
+        var pending = create(item(first, "10"));
+        orderService.checkInventory(pending.id(), "sales");
+        assertThat(inventoryService.inventoryForProduct(first.getId()).pendingQuantity())
+                .isEqualByComparingTo("10");
+        var blocked = orderService.markUnableToDeliver(pending.id(), "Customer cannot accept delivery", "manager");
+        assertThat(blocked.abnormalType()).isEqualTo(OrderAbnormalType.UNABLE_TO_DELIVER);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).pendingQuantity())
+                .isEqualByComparingTo("0");
+        assertThat(outboundRepository.findByOrderId(pending.id())).allMatch(
+                record -> record.getStatus() == OutboundStatus.CANCELLED);
     }
 
     @Test
