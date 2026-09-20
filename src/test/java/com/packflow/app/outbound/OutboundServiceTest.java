@@ -106,6 +106,89 @@ class OutboundServiceTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void shortageThenRestockAndSupplementalShipmentCompletesOrderWithoutDuplicateStockDeduction() {
+        var order = reserve(item(first, "100.000"));
+        var firstTask = rows(order.id()).getFirst();
+        outboundService.complete(firstTask.getId(), new BigDecimal("80.000"), "20 damaged", "warehouse");
+
+        var afterFirst = orderService.getOrder(order.id(), "sales");
+        assertThat(afterFirst.status()).isEqualTo(OrderStatus.ABNORMAL);
+        assertThat(afterFirst.items().getFirst().shippedQuantity()).isEqualByComparingTo("80");
+        assertThat(afterFirst.items().getFirst().remainingQuantity()).isEqualByComparingTo("20");
+        assertThat(afterFirst.events()).anyMatch(event ->
+                event.eventType() == com.packflow.app.order.OrderEventType.OUTBOUND_SHORTAGE);
+        conflict(() -> orderService.planSupplemental(order.id(),
+                afterFirst.items().getFirst().id(), new BigDecimal("21"), "sales"));
+
+        // Another order may reserve the remaining physical stock. Supplemental must wait for restock.
+        var other = reserve(item(first, "20.000"));
+        conflict(() -> orderService.planSupplemental(order.id(),
+                afterFirst.items().getFirst().id(), null, "sales"));
+        inventoryService.recordInbound(first.getId(), new BigDecimal("20"), null, "warehouse");
+
+        var planned = orderService.planSupplemental(order.id(),
+                afterFirst.items().getFirst().id(), null, "sales");
+        assertThat(planned.items().getFirst().pendingQuantity()).isEqualByComparingTo("20");
+        assertThat(planned.items().getFirst().shippedQuantity()).isEqualByComparingTo("80");
+        conflict(() -> orderService.planSupplemental(order.id(),
+                afterFirst.items().getFirst().id(), null, "sales"));
+        var tasks = rows(order.id());
+        assertThat(tasks).hasSize(2);
+        assertThat(tasks.get(1).getShipmentType()).isEqualTo(ShipmentType.SUPPLEMENTAL);
+
+        outboundService.complete(tasks.get(1).getId(), new BigDecimal("20"), null, "warehouse");
+
+        var completed = orderService.getOrder(order.id(), "sales");
+        assertThat(completed.status()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(completed.items().getFirst().shippedQuantity()).isEqualByComparingTo("100");
+        assertThat(completed.items().getFirst().remainingQuantity()).isEqualByComparingTo("0");
+        assertThat(completed.events()).anyMatch(event ->
+                event.eventType() == com.packflow.app.order.OrderEventType.OUTBOUND_SHORTAGE);
+        assertThat(inventoryService.inventoryForProduct(first.getId()).physicalQuantity())
+                .isEqualByComparingTo("20");
+    }
+
+    @Test
+    void customerMayAcceptRemainingShortQuantityWithoutForgingAnotherShipment() {
+        var order = reserve(item(first, "10.000"));
+        var task = rows(order.id()).getFirst();
+        outboundService.complete(task.getId(), new BigDecimal("8"), "Customer accepts 8", "warehouse");
+
+        var accepted = orderService.acceptShortDelivery(order.id(), "Customer approves 2 fewer", "sales");
+        assertThat(accepted.status()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(accepted.items().getFirst().shippedQuantity()).isEqualByComparingTo("8");
+        assertThat(accepted.items().getFirst().waivedQuantity()).isEqualByComparingTo("2");
+        assertThat(accepted.items().getFirst().remainingQuantity()).isEqualByComparingTo("0");
+        assertThat(rows(order.id())).hasSize(1);
+        assertThat(accepted.events()).anyMatch(event ->
+                event.eventType() == com.packflow.app.order.OrderEventType.CUSTOMER_ACCEPTED_SHORTAGE);
+    }
+
+    @Test
+    void agreedPartialFirstShipmentKeepsTheRestOutstandingUntilSupplementalDelivery() {
+        var order = orderService.createOrder(new OrderDtos.CreateOrderRequest(
+                "Part shipment", LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")),
+                List.of(item(first, "120"))), "sales");
+        var checked = orderService.checkInventory(order.id(), "sales");
+        assertThat(checked.abnormalType()).isEqualTo(com.packflow.app.order.OrderAbnormalType.STOCK_SHORTAGE);
+        var scheduled = orderService.planPartialOutbound(order.id(), true, "sales");
+        assertThat(scheduled.status()).isEqualTo(OrderStatus.PENDING_OUTBOUND);
+        assertThat(scheduled.items().getFirst().pendingQuantity()).isEqualByComparingTo("100");
+        conflict(() -> orderService.planPartialOutbound(order.id(), true, "sales"));
+
+        var firstTask = rows(order.id()).getFirst();
+        outboundService.complete(firstTask.getId(), new BigDecimal("100"), null, "warehouse");
+        var partial = orderService.getOrder(order.id(), "sales");
+        assertThat(partial.abnormalType()).isEqualTo(com.packflow.app.order.OrderAbnormalType.SHORT_DELIVERY);
+        assertThat(partial.items().getFirst().remainingQuantity()).isEqualByComparingTo("20");
+
+        inventoryService.recordInbound(first.getId(), new BigDecimal("20"), null, "warehouse");
+        orderService.planSupplemental(order.id(), partial.items().getFirst().id(), null, "sales");
+        outboundService.complete(rows(order.id()).get(1).getId(), new BigDecimal("20"), null, "warehouse");
+        assertThat(orderService.getOrder(order.id(), "sales").status()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
     void quantityDifferenceRequiresReasonAndMarksOrderAbnormal() {
         var order = reserve(item(first, "10.000"));
         var row = rows(order.id()).getFirst();
