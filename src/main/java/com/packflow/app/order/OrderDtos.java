@@ -23,6 +23,8 @@ public final class OrderDtos {
 
     public record DeliveryDateRequest(@NotNull LocalDate deliveryDate) { }
 
+    public record UnableToDeliverRequest(@NotBlank @Size(max = 500) String reason) { }
+
     public record ItemRequest(
             @NotNull @Positive Long productId,
             @NotNull @DecimalMin(value = "0", inclusive = false) @Digits(integer = 15, fraction = 3)
@@ -32,6 +34,6 @@ public final class OrderDtos {
             String unit, BigDecimal orderedQuantity) { }
 
     public record OrderResponse(Long id, String orderNo, String customerName, OrderStatus status,
-            LocalDate deliveryDate, String exceptionReason, String createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt,
+            LocalDate deliveryDate, String exceptionReason, OrderAbnormalType abnormalType, String createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt,
             List<ItemResponse> items) { }
 }
