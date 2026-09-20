@@ -2,6 +2,7 @@ package com.packflow.app.order;
 
 import com.packflow.app.order.OrderDtos.CreateOrderRequest;
 import com.packflow.app.order.OrderDtos.DeliveryDateRequest;
+import com.packflow.app.order.OrderDtos.UnableToDeliverRequest;
 import com.packflow.app.order.OrderDtos.OrderResponse;
 import com.packflow.app.security.JwtPrincipal;
 import jakarta.validation.Valid;
@@ -57,6 +58,12 @@ public class OrderController {
     public OrderResponse updateDeliveryDate(@PathVariable Long id,
             @Valid @RequestBody DeliveryDateRequest request, Authentication authentication) {
         return service.changeDeliveryDate(id, request.deliveryDate(), username(authentication));
+    }
+
+    @PostMapping("/{id}/unable-to-deliver")
+    public OrderResponse markUnableToDeliver(@PathVariable Long id,
+            @Valid @RequestBody UnableToDeliverRequest request, Authentication authentication) {
+        return service.markUnableToDeliver(id, request.reason(), username(authentication));
     }
 
     @PostMapping("/{id}/check-inventory")
