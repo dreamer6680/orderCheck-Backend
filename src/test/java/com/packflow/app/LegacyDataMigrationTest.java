@@ -51,7 +51,7 @@ class LegacyDataMigrationTest {
                 // versioned history that an existing database would already have.
                 sql.executeUpdate("""
                     UPDATE flyway_schema_history
-                    SET installed_rank = 8, description = 'supplemental outbound',
+                    SET installed_rank = 8, version = '8', description = 'supplemental outbound',
                         type = 'SQL', script = 'V8__supplemental_outbound.sql', checksum = 12345678
                     WHERE script = 'V9__current_schema.sql'
                     """);
