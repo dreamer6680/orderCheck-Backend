@@ -3,6 +3,9 @@ package com.packflow.app.order;
 import com.packflow.app.order.OrderDtos.CreateOrderRequest;
 import com.packflow.app.order.OrderDtos.DeliveryDateRequest;
 import com.packflow.app.order.OrderDtos.UnableToDeliverRequest;
+import com.packflow.app.order.OrderDtos.PartialOutboundRequest;
+import com.packflow.app.order.OrderDtos.SupplementalRequest;
+import com.packflow.app.order.OrderDtos.AcceptShortDeliveryRequest;
 import com.packflow.app.order.OrderDtos.OrderResponse;
 import com.packflow.app.security.JwtPrincipal;
 import jakarta.validation.Valid;
@@ -64,6 +67,24 @@ public class OrderController {
     public OrderResponse markUnableToDeliver(@PathVariable Long id,
             @Valid @RequestBody UnableToDeliverRequest request, Authentication authentication) {
         return service.markUnableToDeliver(id, request.reason(), username(authentication));
+    }
+
+    @PostMapping("/{id}/partial-outbound")
+    public OrderResponse planPartialOutbound(@PathVariable Long id,
+            @Valid @RequestBody PartialOutboundRequest request, Authentication authentication) {
+        return service.planPartialOutbound(id, request.customerAgreed(), username(authentication));
+    }
+
+    @PostMapping("/{id}/supplemental-outbound")
+    public OrderResponse planSupplemental(@PathVariable Long id,
+            @Valid @RequestBody SupplementalRequest request, Authentication authentication) {
+        return service.planSupplemental(id, request.orderItemId(), request.quantity(), username(authentication));
+    }
+
+    @PostMapping("/{id}/accept-short-delivery")
+    public OrderResponse acceptShortDelivery(@PathVariable Long id,
+            @Valid @RequestBody AcceptShortDeliveryRequest request, Authentication authentication) {
+        return service.acceptShortDelivery(id, request.reason(), username(authentication));
     }
 
     @PostMapping("/{id}/check-inventory")
