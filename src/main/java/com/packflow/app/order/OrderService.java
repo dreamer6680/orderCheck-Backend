@@ -120,7 +120,33 @@ public class OrderService {
         requireUser(username, true);
         SalesOrder order = lockOrder(orderId);
         requireStatus(order, OrderStatus.ABNORMAL);
+        if (order.getAbnormalType() != OrderAbnormalType.STOCK_SHORTAGE) {
+            throw error(HttpStatus.CONFLICT, "Only stock-shortage orders can be rechecked");
+        }
         return reserve(order);
+    }
+
+    @Transactional
+    public OrderResponse markUnableToDeliver(Long orderId, String reason, String username) {
+        requireUser(username, true);
+        if (reason == null || reason.isBlank() || reason.trim().length() > 500) {
+            throw error(HttpStatus.BAD_REQUEST, "A reason of up to 500 characters is required");
+        }
+        SalesOrder order = lockOrder(orderId);
+        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw error(HttpStatus.CONFLICT, "Order is already completed or cancelled");
+        }
+        // A partial delivery is factual and must not be relabeled as an order with no delivery.
+        List<OutboundRecord> records = outbounds.findByOrderId(orderId);
+        if (records.stream().anyMatch(record -> record.getStatus() == OutboundStatus.COMPLETED)) {
+            throw error(HttpStatus.CONFLICT, "Order already has shipped items");
+        }
+        if (order.getStatus() == OrderStatus.PENDING_OUTBOUND) {
+            lockInventories(items.findByOrderIdOrderByProductIdAsc(orderId));
+            records.forEach(OutboundRecord::cancelPending);
+        }
+        order.markAbnormal(OrderAbnormalType.UNABLE_TO_DELIVER, reason.trim());
+        return response(order);
     }
 
     @Transactional
@@ -158,7 +184,7 @@ public class OrderService {
             }
         }
         if (!shortages.isEmpty()) {
-            order.markAbnormal(String.join("; ", shortages));
+            order.markAbnormal(OrderAbnormalType.STOCK_SHORTAGE, String.join("; ", shortages));
         } else {
             LocalDate plannedDate = order.getDeliveryDate() == null
                     ? LocalDate.now(warehouseZone) : order.getDeliveryDate();
@@ -200,7 +226,7 @@ public class OrderService {
                 .map(item -> new ItemResponse(item.getId(), item.getProduct().getId(), item.getProduct().getSku(),
                         item.getProduct().getName(), item.getProduct().getUnit(), item.getOrderedQuantity())).toList();
         return new OrderResponse(order.getId(), order.getOrderNo(), order.getCustomerName(), order.getStatus(),
-                order.getDeliveryDate(), order.getExceptionReason(), order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(), details);
+                order.getDeliveryDate(), order.getExceptionReason(), order.getAbnormalType(), order.getCreatedBy().getUsername(), order.getCreatedAt(), order.getUpdatedAt(), details);
     }
 
     private String nextNumber(String prefix) { return prefix + "-" + UUID.randomUUID().toString().replace("-", ""); }
