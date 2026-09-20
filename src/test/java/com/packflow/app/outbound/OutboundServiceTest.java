@@ -184,7 +184,9 @@ class OutboundServiceTest extends PostgresIntegrationTest {
 
         inventoryService.recordInbound(first.getId(), new BigDecimal("20"), null, "warehouse");
         orderService.planSupplemental(order.id(), partial.items().getFirst().id(), null, "sales");
-        outboundService.complete(rows(order.id()).get(1).getId(), new BigDecimal("20"), null, "warehouse");
+        outboundService.complete(rows(order.id()).stream()
+                .filter(record -> record.getShipmentType() == ShipmentType.SUPPLEMENTAL)
+                .findFirst().orElseThrow().getId(), new BigDecimal("20"), null, "warehouse");
         assertThat(orderService.getOrder(order.id(), "sales").status()).isEqualTo(OrderStatus.COMPLETED);
     }
 
