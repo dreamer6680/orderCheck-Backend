@@ -10,7 +10,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** A fresh database uses the consolidated B8 migration, not V1-V8 one at a time. */
+/** A fresh database uses the consolidated V9 migration, not V1-V8 one at a time. */
 class ConsolidatedBaselineTest {
 
     @Test
@@ -32,7 +32,7 @@ class ConsolidatedBaselineTest {
                         .isEqualTo("1");
                 assertThat(scalar(sql,
                         "SELECT script FROM flyway_schema_history WHERE success = true"))
-                        .isEqualTo("B8__current_schema.sql");
+                        .isEqualTo("V9__current_schema.sql");
                 assertThat(scalar(sql,
                         "SELECT count(*) FROM information_schema.columns "
                                 + "WHERE table_schema='public' AND table_name='app_user' "

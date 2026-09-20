@@ -14,7 +14,7 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-    # Consolidated B8 replaces historical V1-V8 on fresh databases.
+    # Consolidated V9 creates fresh schema and safely skips existing V8 tables.
     # Keep existing databases' Flyway history; allow missing old scripts.
     ignore-migration-patterns: "*:missing"
 
