@@ -30,6 +30,8 @@ public class SalesOrder {
     private OrderStatus status;
     @Column(name = "delivery_date")
     private LocalDate deliveryDate;
+    @Enumerated(EnumType.STRING) @Column(name = "abnormal_type", length = 30)
+    private OrderAbnormalType abnormalType;
     @Column(name = "exception_reason", columnDefinition = "text")
     private String exceptionReason;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -63,9 +65,18 @@ public class SalesOrder {
     public void markPendingOutbound() {
         status = OrderStatus.PENDING_OUTBOUND;
         exceptionReason = null;
+        abnormalType = null;
     }
 
     public void markAbnormal(String reason) {
+        markAbnormal(OrderAbnormalType.OTHER, reason);
+    }
+
+    public void markAbnormal(OrderAbnormalType type, String reason) {
+        if (type == null || reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Abnormal type and reason are required");
+        }
+        abnormalType = type;
         status = OrderStatus.ABNORMAL;
         exceptionReason = reason;
     }
@@ -73,14 +84,20 @@ public class SalesOrder {
     public void markCompleted() {
         status = OrderStatus.COMPLETED;
         exceptionReason = null;
+        abnormalType = null;
     }
 
-    public void cancel() { status = OrderStatus.CANCELLED; }
+    public void cancel() {
+        status = OrderStatus.CANCELLED;
+        exceptionReason = null;
+        abnormalType = null;
+    }
     public Long getId() { return id; }
     public String getOrderNo() { return orderNo; }
     public String getCustomerName() { return customerName; }
     public OrderStatus getStatus() { return status; }
     public String getExceptionReason() { return exceptionReason; }
+    public OrderAbnormalType getAbnormalType() { return abnormalType; }
     public LocalDate getDeliveryDate() { return deliveryDate; }
     public AppUser getCreatedBy() { return createdBy; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
