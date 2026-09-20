@@ -3,6 +3,7 @@ package com.packflow.app.outbound;
 import com.packflow.app.inventory.Inventory;
 import com.packflow.app.inventory.InventoryRepository;
 import com.packflow.app.order.OrderStatus;
+import com.packflow.app.order.OrderAbnormalType;
 import com.packflow.app.order.SalesOrder;
 import com.packflow.app.order.SalesOrderRepository;
 import com.packflow.app.outbound.OutboundDtos.OutboundResponse;
@@ -84,7 +85,8 @@ public class OutboundService {
         if (record.getStatus() != OutboundStatus.PENDING) {
             reason = "Outbound record is no longer pending";
         } else if (record.getOrder().getStatus() != OrderStatus.PENDING_OUTBOUND
-                && record.getOrder().getStatus() != OrderStatus.ABNORMAL) {
+                && !(record.getOrder().getStatus() == OrderStatus.ABNORMAL
+                     && record.getOrder().getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY)) {
             reason = "Order state does not allow outbound";
         } else if (physical.compareTo(record.getPlannedQuantity()) < 0) {
             reason = "Insufficient physical inventory";
@@ -120,7 +122,9 @@ public class OutboundService {
         if (actualQuantity.compareTo(record.getPlannedQuantity()) > 0) {
             throw error(HttpStatus.BAD_REQUEST, "Actual quantity cannot exceed planned quantity");
         }
-        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND && order.getStatus() != OrderStatus.ABNORMAL) {
+        if (order.getStatus() != OrderStatus.PENDING_OUTBOUND
+                && !(order.getStatus() == OrderStatus.ABNORMAL
+                     && order.getAbnormalType() == OrderAbnormalType.SHORT_DELIVERY)) {
             throw error(HttpStatus.CONFLICT, "Order state does not allow outbound");
         }
         // Preserve physical stock reserved for other pending tasks, under the inventory row lock.
@@ -145,7 +149,8 @@ public class OutboundService {
         }
 
         if (differs) {
-            order.markAbnormal("SKU " + record.getProduct().getSku() + ": planned "
+            order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY,
+                    "SKU " + record.getProduct().getSku() + ": planned "
                     + quantity(record.getPlannedQuantity()) + ", actual " + quantity(actualQuantity)
                     + ", reason: " + reason);
         } else {
@@ -174,7 +179,8 @@ public class OutboundService {
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Inventory not found"));
         OutboundRecord record = lockPending(recordId);
         record.cancelPending();
-        order.markAbnormal("Outbound record " + record.getRecordNo() + " was cancelled");
+        order.markAbnormal(OrderAbnormalType.OUTBOUND_CANCELLED,
+                "Outbound record " + record.getRecordNo() + " was cancelled");
         return response(record);
     }
 
@@ -184,7 +190,8 @@ public class OutboundService {
             if (records.stream().anyMatch(record -> record.getActualQuantity()
                     .compareTo(record.getPlannedQuantity()) != 0)) {
                 if (order.getStatus() != OrderStatus.ABNORMAL) {
-                    order.markAbnormal("One or more outbound quantities differ from the order");
+                    order.markAbnormal(OrderAbnormalType.SHORT_DELIVERY,
+                            "One or more outbound quantities differ from the order");
                 }
             } else {
                 order.markCompleted();
