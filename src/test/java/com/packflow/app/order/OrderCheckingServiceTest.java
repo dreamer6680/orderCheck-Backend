@@ -253,7 +253,7 @@ class OrderCheckingServiceTest extends PostgresIntegrationTest {
         orderService.checkInventory(order.id(), "sales");
         var row = outboundRepository.findByOrderId(order.id()).getFirst();
         jdbc.update("update outbound_record set status = 'COMPLETED', actual_quantity = 10 where id = ?", row.getId());
-        jdbc.update("update sales_order set status = 'ABNORMAL' where id = ?", order.id());
+        jdbc.update("update sales_order set status = 'ABNORMAL', abnormal_type = 'SHORT_DELIVERY' where id = ?", order.id());
         conflict(() -> orderService.cancelOrder(order.id(), "sales"));
         conflict(() -> orderService.recheckInventory(order.id(), "sales"));
         assertThat(outboundRepository.findByOrderId(order.id())).hasSize(2);
