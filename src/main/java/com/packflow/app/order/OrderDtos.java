@@ -25,15 +25,29 @@ public final class OrderDtos {
 
     public record UnableToDeliverRequest(@NotBlank @Size(max = 500) String reason) { }
 
+    public record PartialOutboundRequest(
+            @NotNull Boolean customerAgreed) { }
+
+    public record SupplementalRequest(
+            @NotNull @Positive Long orderItemId,
+            @DecimalMin(value = "0", inclusive = false) @Digits(integer = 15, fraction = 3)
+            BigDecimal quantity) { }
+
+    public record AcceptShortDeliveryRequest(@NotBlank @Size(max = 500) String reason) { }
+
+    public record OrderEventResponse(Long id, OrderEventType eventType, String description,
+            String operatorUsername, OffsetDateTime createdAt) { }
+
     public record ItemRequest(
             @NotNull @Positive Long productId,
             @NotNull @DecimalMin(value = "0", inclusive = false) @Digits(integer = 15, fraction = 3)
             BigDecimal orderedQuantity) { }
 
     public record ItemResponse(Long id, Long productId, String sku, String productName,
-            String unit, BigDecimal orderedQuantity) { }
+            String unit, BigDecimal orderedQuantity, BigDecimal shippedQuantity,
+            BigDecimal pendingQuantity, BigDecimal waivedQuantity, BigDecimal remainingQuantity) { }
 
     public record OrderResponse(Long id, String orderNo, String customerName, OrderStatus status,
             LocalDate deliveryDate, String exceptionReason, OrderAbnormalType abnormalType, String createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt,
-            List<ItemResponse> items) { }
+            List<ItemResponse> items, List<OrderEventResponse> events) { }
 }
