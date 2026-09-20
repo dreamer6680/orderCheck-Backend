@@ -79,7 +79,7 @@ class LegacyDataMigrationTest {
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
                  Statement sql = db.createStatement()) {
                 assertThat(scalar(sql, "SELECT count(*) FROM flyway_schema_history WHERE success = true"))
-                        .isEqualTo("8");
+                        .isEqualTo("9");
                 assertThat(scalar(sql, "SELECT customer_name FROM sales_order WHERE id = 9003"))
                         .isEqualTo("Existing customer");
                 assertThat(scalar(sql, "SELECT ordered_quantity FROM sales_order_item WHERE id = 9004"))
