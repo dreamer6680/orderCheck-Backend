@@ -1,8 +1,10 @@
-name: Backend dev verification
+name: Backend verification
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
